@@ -211,6 +211,8 @@ class Planet:
     def colonize(self):
         self.colonized = True
         self.explored = True
+        for res, amt in START_RESOURCES.items():
+            self.resources[res] = self.resources.get(res, 0) + amt
 
     def debug_complete_all(self, all_ships):
         while self.build_queue:

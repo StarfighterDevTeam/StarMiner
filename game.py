@@ -120,6 +120,7 @@ class Game:
             p.update(dt, self.ships)
         for s in self.ships:
             s.update(dt, self.planets)
+        self.ships = [s for s in self.ships if not s._destroyed]
 
         mx, my = pygame.mouse.get_pos()
         in_planet_panel = self.ui.visible and self.ui.panel_rect.collidepoint(mx, my)

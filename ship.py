@@ -52,6 +52,7 @@ class Ship:
         self.cargo = {r: 0.0 for r in RESOURCE_NAMES}
         self._mine_timer = 0.0
         self._mine_duration = 8.0   # seconds to mine at destination
+        self._destroyed = False
 
     # ── missions ─────────────────────────────────────────────────
     def send_explore(self, target):
@@ -68,6 +69,20 @@ class Ship:
         self.state = MISSION_TRAVEL
         self._mission_type = "mine"
         return True
+
+    def send_colonize(self, target):
+        if self.state != MISSION_IDLE: return False
+        if self.type != "Colonizer": return False
+        self.target_planet = target
+        self.state = MISSION_TRAVEL
+        self._mission_type = "colonize"
+        return True
+
+    def cancel_mission(self):
+        if self.state in (MISSION_TRAVEL, MISSION_MINE):
+            self.state = MISSION_RETURN
+            return True
+        return False
 
     # ── update ───────────────────────────────────────────────────
     def update(self, dt, planets):
@@ -86,6 +101,12 @@ class Ship:
                 elif self._mission_type == "mine":
                     self.state = MISSION_MINE
                     self._mine_timer = self._mine_duration
+                elif self._mission_type == "colonize":
+                    self.target_planet.colonize()
+                    if self in self.home.ships:
+                        self.home.ships.remove(self)
+                    self._destroyed = True
+                    return
 
         elif self.state == MISSION_MINE:
             self._mine_timer -= dt
@@ -149,13 +170,17 @@ class Ship:
         surface.blit(rotated, rect)
 
         # State dot
-        dot_color = {
-            MISSION_IDLE:    GRAY,
-            MISSION_TRAVEL:  CYAN,
-            MISSION_MINE:    ORANGE,
-            MISSION_RETURN:  GREEN,
-            MISSION_EXPLORE: CYAN,
-        }.get(self.state, WHITE)
+        mission_type = getattr(self, "_mission_type", None)
+        if self.state == MISSION_TRAVEL and mission_type == "colonize":
+            dot_color = GOLD
+        else:
+            dot_color = {
+                MISSION_IDLE:    GRAY,
+                MISSION_TRAVEL:  CYAN,
+                MISSION_MINE:    ORANGE,
+                MISSION_RETURN:  GREEN,
+                MISSION_EXPLORE: CYAN,
+            }.get(self.state, WHITE)
         pygame.draw.circle(surface, dot_color, (sx + draw_size // 2, sy - draw_size // 2), max(3, int(4 * camera.zoom)))
 
         # Travel line toward actual destination

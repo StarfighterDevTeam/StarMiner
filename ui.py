@@ -150,10 +150,6 @@ class PlanetUI:
             ok = p.start_ship(stype)
             self.show_message(f"Building {stype}..." if ok else "Cannot build ship")
 
-        elif tag.startswith("colonize"):
-            p.colonize()
-            self.show_message(f"{p.name} colonized!")
-
         elif tag == "cancel_build_one":
             p.cancel_build()
             self.show_message("Production annulée (remboursée)")
@@ -174,7 +170,7 @@ class PlanetUI:
             lvl = b.level if b else "?"
             self.show_message(f"Upgrade {bname} → Niv.{lvl + 1 if b else '?'}..." if ok else "Upgrade impossible")
 
-        elif tag.startswith("explore:") or tag.startswith("mine:"):
+        elif tag.startswith("explore:") or tag.startswith("mine:") or tag.startswith("colonize:"):
             mtype, sid = tag.split(":")
             ship = next((s for s in p.ships if s.id == int(sid)), None)
             if ship:
@@ -183,7 +179,8 @@ class PlanetUI:
                     self.show_message("Mission annulée")
                 else:
                     self._mission_mode = (mtype, ship)
-                    self.show_message(f"Cliquez sur une planète pour {mtype}")
+                    verb = {"explore": "explorer", "mine": "miner", "colonize": "coloniser"}.get(mtype, mtype)
+                    self.show_message(f"Cliquez sur une planète à {verb}")
 
     def dispatch_mission(self, target_planet):
         if not self._mission_mode:
@@ -197,13 +194,25 @@ class PlanetUI:
         if mtype == "mine" and not target_planet.explored:
             self.show_message(f"Explorez d'abord {target_planet.name}")
             return
+        if mtype == "colonize":
+            if not target_planet.explored:
+                self.show_message(f"Explorez d'abord {target_planet.name}")
+                return
+            if target_planet.colonized:
+                self.show_message(f"{target_planet.name} est déjà colonisée")
+                return
 
         self._mission_mode = None
         if mtype == "explore":
             ok = ship.send_explore(target_planet)
-        else:
+        elif mtype == "mine":
             ok = ship.send_mine(target_planet)
-        self.show_message(f"Mission {mtype} → {target_planet.name}" if ok else "Mission échouée")
+        else:
+            ok = ship.send_colonize(target_planet)
+        if mtype == "colonize" and ok:
+            self.show_message(f"Coloniseur en route → {target_planet.name} (aller simple)")
+        else:
+            self.show_message(f"Mission {mtype} → {target_planet.name}" if ok else "Mission échouée")
 
     # ── draw ─────────────────────────────────────────────────────
     def draw(self, surface, planets):
@@ -235,11 +244,6 @@ class PlanetUI:
         surface.blit(sub, (pr.x + 12, y))
         y += 18
 
-        # Colonize button
-        if not p.colonized and p.explored:
-            btn = Button((pr.x + pr.w - 120, pr.y + 10, 108, 24), "Colonize", tooltip="colonize")
-            btn.draw(surface)
-            self._buttons.append(btn)
 
         # ── Resources ────────────────────────────────────────────
         pygame.draw.line(surface, UI_BORDER, (pr.x + 8, y), (pr.x + pr.w - 8, y))
@@ -253,63 +257,79 @@ class PlanetUI:
             rx = pr.x + 10 + col * col_w
             ry = y + row * 16
             color = RESOURCE_COLORS.get(res, WHITE)
-            label = f"{res[:RESOURCE_MAX_CHAR].upper()}: {int(val)}" # shorten resources names to X characters max
+            if p.colonized:
+                label = f"{res[:RESOURCE_MAX_CHAR].upper()}: {int(val)}"
+            else:
+                label = res[:RESOURCE_MAX_CHAR].upper()
             t = res_font.render(label, True, color)
             surface.blit(t, (rx, ry))
         rows = (len(res_items) + 2) // 3
         y += max(rows * 16 + 4, 20)
 
-        # Production rates
-        prod = {}
-        for b in p.buildings:
-            for r, rate in b.produces.items():
-                prod[r] = prod.get(r, 0) + rate
-        if prod:
-            prod_font = _font(10)
-            parts = [f"+{rate:.1f}/s {res[:RESOURCE_MAX_CHAR]}" for res, rate in prod.items()]
-            pt = prod_font.render("  ".join(parts), True, GREEN)
-            surface.blit(pt, (pr.x + 10, y))
-            y += 14
-        y += 4
+        if p.colonized:
+            # Production rates
+            prod = {}
+            for b in p.buildings:
+                for r, rate in b.produces.items():
+                    prod[r] = prod.get(r, 0) + rate
+            if prod:
+                prod_font = _font(10)
+                parts = [f"+{rate:.1f}/s {res[:RESOURCE_MAX_CHAR]}" for res, rate in prod.items()]
+                pt = prod_font.render("  ".join(parts), True, GREEN)
+                surface.blit(pt, (pr.x + 10, y))
+                y += 14
+            y += 4
 
-        # ── Tabs ─────────────────────────────────────────────────
-        tabs = ["Buildings", "Ships", "Fleet"]
-        tab_w = pr.w // len(tabs)
-        for i, tab in enumerate(tabs):
-            active = self._tab == tab.lower()
-            color = UI_BTN_HOV if active else UI_BTN
-            tr = pygame.Rect(pr.x + i * tab_w, y, tab_w, 24)
-            pygame.draw.rect(surface, color, tr)
-            pygame.draw.rect(surface, UI_BORDER, tr, 1)
-            tf = _font(12)
-            tt = tf.render(tab, True, WHITE)
-            surface.blit(tt, tt.get_rect(center=tr.center))
-            tb = Button(tr, tab.lower(), tooltip="")
-            tb._hovered = False
-            self._tab_btns.append(tb)
-        y += 26
+            # ── Tabs ─────────────────────────────────────────────────
+            tabs = ["Buildings", "Ships", "Fleet"]
+            tab_w = pr.w // len(tabs)
+            for i, tab in enumerate(tabs):
+                active = self._tab == tab.lower()
+                color = UI_BTN_HOV if active else UI_BTN
+                tr = pygame.Rect(pr.x + i * tab_w, y, tab_w, 24)
+                pygame.draw.rect(surface, color, tr)
+                pygame.draw.rect(surface, UI_BORDER, tr, 1)
+                tf = _font(12)
+                tt = tf.render(tab, True, WHITE)
+                surface.blit(tt, tt.get_rect(center=tr.center))
+                tb = Button(tr, tab.lower(), tooltip="")
+                tb._hovered = False
+                self._tab_btns.append(tb)
+            y += 26
 
-        # ── Tab content ──────────────────────────────────────────
-        content_y = y
-        _QUEUE_SEC_H = 202   # height reserved at bottom for both queues (94*2 + 14)
-        content_h = pr.y + pr.h - _QUEUE_SEC_H - 14 - y
-        clip = pygame.Rect(pr.x, content_y, pr.w, max(0, content_h))
-        surface.set_clip(clip)
+            # ── Tab content ──────────────────────────────────────────
+            content_y = y
+            _QUEUE_SEC_H = 202
+            content_h = pr.y + pr.h - _QUEUE_SEC_H - 14 - y
+            clip = pygame.Rect(pr.x, content_y, pr.w, max(0, content_h))
+            surface.set_clip(clip)
 
-        if self._tab == "buildings":
-            self._draw_buildings(surface, pr, content_y, p)
-        elif self._tab == "ships":
-            self._draw_ships_tab(surface, pr, content_y, p)
-        elif self._tab == "fleet":
-            self._draw_fleet(surface, pr, content_y, p)
+            if self._tab == "buildings":
+                self._draw_buildings(surface, pr, content_y, p)
+            elif self._tab == "ships":
+                self._draw_ships_tab(surface, pr, content_y, p)
+            elif self._tab == "fleet":
+                self._draw_fleet(surface, pr, content_y, p)
 
-        surface.set_clip(None)
+            surface.set_clip(None)
 
-        # ── Production queues ─────────────────────────────────────
-        queue_y = pr.y + pr.h - _QUEUE_SEC_H - 2
-        pygame.draw.line(surface, UI_BORDER,
-                         (pr.x + 8, queue_y - 5), (pr.x + pr.w - 8, queue_y - 5))
-        self._draw_queue_section(surface, pr, queue_y, p)
+            # ── Production queues ─────────────────────────────────────
+            queue_y = pr.y + pr.h - _QUEUE_SEC_H - 2
+            pygame.draw.line(surface, UI_BORDER,
+                             (pr.x + 8, queue_y - 5), (pr.x + pr.w - 8, queue_y - 5))
+            self._draw_queue_section(surface, pr, queue_y, p)
+
+        else:
+            # ── Uncolonized hint ──────────────────────────────────────
+            hf = _font(11)
+            hc = (70, 80, 100)
+            surface.blit(hf.render("Cette planète n'est pas colonisée.", True, hc), (pr.x + 12, y + 10))
+            if p.explored:
+                surface.blit(hf.render("Envoyez un Colonisateur depuis votre flotte", True, hc), (pr.x + 12, y + 26))
+                surface.blit(hf.render("pour prendre possession de cette planète.", True, hc), (pr.x + 12, y + 42))
+            else:
+                surface.blit(hf.render("Explorez-la avec une Probe, puis envoyez", True, hc), (pr.x + 12, y + 26))
+                surface.blit(hf.render("un Colonisateur depuis votre flotte.", True, hc), (pr.x + 12, y + 42))
 
         # ── Message ──────────────────────────────────────────────
         if self._msg_timer > 0 and self._message:
@@ -652,11 +672,12 @@ class PlanetUI:
 # ══════════════════════════════════════════════════════════════════
 class ShipUI:
     PANEL_W = 330
-    PANEL_H = 280
+    PANEL_H = 310
 
     def __init__(self):
         self.ship = None
         self.visible = False
+        self._buttons: list[Button] = []
 
     def open(self, ship):
         self.ship = ship
@@ -674,6 +695,11 @@ class ShipUI:
         if not self.visible:
             return False
         pos = pygame.mouse.get_pos()
+        for btn in self._buttons:
+            if btn.is_clicked(pos, event):
+                if btn.tooltip == "cancel_mission" and self.ship:
+                    self.ship.cancel_mission()
+                return True
         if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
             if not self.panel_rect.collidepoint(pos):
                 self.close()
@@ -685,6 +711,7 @@ class ShipUI:
             return
         s = self.ship
         pr = self.panel_rect
+        self._buttons.clear()
 
         # Background
         panel = pygame.Surface((pr.w, pr.h), pygame.SRCALPHA)
@@ -728,7 +755,10 @@ class ShipUI:
 
         mission_type = getattr(s, "_mission_type", None)
         if s.state == MISSION_TRAVEL and mission_type:
-            state_label += f"  ({mission_type})"
+            labels = {"explore": "exploration", "mine": "extraction", "colonize": "colonisation"}
+            state_label += f"  ({labels.get(mission_type, mission_type)})"
+        if s.state == MISSION_TRAVEL and mission_type == "colonize":
+            state_color = GOLD
         st = sf.render(f"Statut : {state_label}", True, state_color)
         surface.blit(st, (pr.x + 12, y))
         y += 18
@@ -794,6 +824,15 @@ class ShipUI:
             mt = df.render(f"Extraction  :  {remaining:.0f}s restantes", True, ORANGE)
             surface.blit(mt, (pr.x + 12, y))
             y += 15
+
+        # Cancel mission button
+        if s.state in (MISSION_TRAVEL, MISSION_MINE):
+            cancel_btn = Button((pr.x + pr.w // 2 - 70, y + 2, 140, 20),
+                                "Annuler mission", tooltip="cancel_mission")
+            cancel_btn.handle_mouse(pygame.mouse.get_pos())
+            cancel_btn.draw(surface)
+            self._buttons.append(cancel_btn)
+            y += 26
 
         pygame.draw.line(surface, (40, 80, 120), (pr.x + 8, y), (pr.x + pr.w - 8, y))
         y += 8
