@@ -17,6 +17,7 @@ class Game:
         self.ship_ui = ShipUI()
         self._hovered_planet = None
         self._hovered_ship = None
+        self._time_scale = 1.0
         self._running = True
 
         # Center camera on home planet
@@ -28,7 +29,7 @@ class Game:
     def run(self):
         while self._running:
             dt = self.clock.tick(FPS) / 1000.0
-            dt = min(dt, 0.1)
+            dt = min(dt, 0.1) * self._time_scale
             self._handle_events()
             self._update(dt)
             self._draw()
@@ -42,9 +43,12 @@ class Game:
                 self._running = False
                 return
 
-            # ESC: close UIs in order, then quit
+            # ESC: cancel mission mode first, then close UIs, then quit
             if event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
-                if self.ship_ui.visible:
+                if self.ui._mission_mode:
+                    self.ui._mission_mode = None
+                    self.ui.show_message("Mission annulée")
+                elif self.ship_ui.visible:
                     self.ship_ui.close()
                 elif self.ui.visible:
                     self.ui.close()
@@ -105,6 +109,7 @@ class Game:
 
         keys = pygame.key.get_pressed()
         self.camera.update(keys)
+        self._time_scale = 10.0 if keys[pygame.K_KP_PLUS] else 1.0
 
     # ── update ───────────────────────────────────────────────────
     def _update(self, dt):
@@ -159,6 +164,10 @@ class Game:
 
         zoom_txt = font.render(f"Zoom: {self.camera.zoom:.1f}x", True, GRAY)
         self.screen.blit(zoom_txt, (8, 22))
+
+        if self._time_scale > 1.0:
+            spd_txt = font.render(f"[DEBUG] x{int(self._time_scale)}", True, ORANGE)
+            self.screen.blit(spd_txt, (8, 36))
 
         home = self.planets[0]
         x = 8

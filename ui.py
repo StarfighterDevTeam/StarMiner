@@ -8,20 +8,36 @@ def _font(size):
     except Exception:
         return pygame.font.Font(None, size + 4)
 
+_BTN_ACTIVE     = (160, 90, 10)
+_BTN_ACTIVE_HOV = (200, 120, 20)
+_BTN_ACTIVE_TXT = (255, 210, 120)
+_BTN_ACTIVE_BRD = (255, 160, 40)
+
 class Button:
-    def __init__(self, rect, text, enabled=True, tooltip=""):
+    def __init__(self, rect, text, enabled=True, tooltip="", active=False):
         self.rect = pygame.Rect(rect)
         self.text = text
         self.enabled = enabled
         self.tooltip = tooltip
+        self.active = active
         self._hovered = False
 
     def draw(self, surface):
-        color = UI_BTN_HOV if (self._hovered and self.enabled) else (UI_BTN if self.enabled else UI_DISABLED)
+        if self.active:
+            color = _BTN_ACTIVE_HOV if self._hovered else _BTN_ACTIVE
+            border = _BTN_ACTIVE_BRD
+            txt_color = _BTN_ACTIVE_TXT
+            label = ">> " + self.text
+        elif self._hovered and self.enabled:
+            color, border, txt_color, label = UI_BTN_HOV, UI_BORDER, UI_BTN_TXT, self.text
+        elif self.enabled:
+            color, border, txt_color, label = UI_BTN, UI_BORDER, UI_BTN_TXT, self.text
+        else:
+            color, border, txt_color, label = UI_DISABLED, UI_BORDER, GRAY, self.text
+
         pygame.draw.rect(surface, color, self.rect, border_radius=4)
-        pygame.draw.rect(surface, UI_BORDER, self.rect, 1, border_radius=4)
-        font = _font(12)
-        txt = font.render(self.text, True, UI_BTN_TXT if self.enabled else GRAY)
+        pygame.draw.rect(surface, border, self.rect, 1, border_radius=4)
+        txt = _font(11).render(label, True, txt_color)
         surface.blit(txt, txt.get_rect(center=self.rect.center))
 
     def handle_mouse(self, pos):
@@ -138,30 +154,36 @@ class PlanetUI:
             p.colonize()
             self.show_message(f"{p.name} colonized!")
 
-        elif tag.startswith("explore:"):
-            ship_id = int(tag.split(":")[1])
-            ship = next((s for s in p.ships if s.id == ship_id), None)
+        elif tag.startswith("explore:") or tag.startswith("mine:"):
+            mtype, sid = tag.split(":")
+            ship = next((s for s in p.ships if s.id == int(sid)), None)
             if ship:
-                self._mission_mode = ("explore", ship)
-                self.show_message("Click a planet to explore")
-
-        elif tag.startswith("mine:"):
-            ship_id = int(tag.split(":")[1])
-            ship = next((s for s in p.ships if s.id == ship_id), None)
-            if ship:
-                self._mission_mode = ("mine", ship)
-                self.show_message("Click a planet to mine")
+                if self._mission_mode and self._mission_mode == (mtype, ship):
+                    self._mission_mode = None          # toggle: annuler
+                    self.show_message("Mission annulée")
+                else:
+                    self._mission_mode = (mtype, ship)
+                    self.show_message(f"Cliquez sur une planète pour {mtype}")
 
     def dispatch_mission(self, target_planet):
         if not self._mission_mode:
             return
         mtype, ship = self._mission_mode
+
+        # Validate — keep mission mode active so the player can pick another planet
+        if mtype == "explore" and target_planet.explored:
+            self.show_message(f"{target_planet.name} est déjà explorée")
+            return
+        if mtype == "mine" and not target_planet.explored:
+            self.show_message(f"Explorez d'abord {target_planet.name}")
+            return
+
         self._mission_mode = None
         if mtype == "explore":
             ok = ship.send_explore(target_planet)
         else:
             ok = ship.send_mine(target_planet)
-        self.show_message(f"Mission {mtype} → {target_planet.name}" if ok else "Mission failed")
+        self.show_message(f"Mission {mtype} → {target_planet.name}" if ok else "Mission échouée")
 
     # ── draw ─────────────────────────────────────────────────────
     def draw(self, surface, planets):
@@ -412,10 +434,10 @@ class PlanetUI:
                 missions = SHIP_DEFS[ship.type]["missions"]
                 bx = pr.x + pr.w - 170
                 for mi, mtype in enumerate(missions):
-                    enabled = ship.state == "idle"
+                    is_active = self._mission_mode == (mtype, ship)
                     btn = Button((bx + mi * 82, ry + 10, 76, 20),
-                                 mtype.capitalize(), enabled=enabled,
-                                 tooltip=f"{mtype}:{ship.id}")
+                                 mtype.capitalize(), enabled=True,
+                                 tooltip=f"{mtype}:{ship.id}", active=is_active)
                     btn.handle_mouse(pygame.mouse.get_pos())
                     btn.draw(surface)
                     self._buttons.append(btn)
