@@ -202,7 +202,7 @@ class PlanetUI:
         pygame.draw.line(surface, UI_BORDER, (pr.x + 8, y), (pr.x + pr.w - 8, y))
         y += 6
         res_font = _font(11)
-        col_w = (pr.w - 20) // 3
+        col_w = (pr.w - 20) // 4
         res_items = [(r, v) for r, v in p.resources.items() if v > 0 or r in p.available_resources]
         for i, (res, val) in enumerate(res_items):
             col = i % 3
@@ -210,7 +210,7 @@ class PlanetUI:
             rx = pr.x + 10 + col * col_w
             ry = y + row * 16
             color = RESOURCE_COLORS.get(res, WHITE)
-            label = f"{res[:3].upper()}: {int(val)}"
+            label = f"{res[:RESOURCE_MAX_CHAR].upper()}: {int(val)}" # shorten resources names to X characters max
             t = res_font.render(label, True, color)
             surface.blit(t, (rx, ry))
         rows = (len(res_items) + 2) // 3
@@ -223,7 +223,7 @@ class PlanetUI:
                 prod[r] = prod.get(r, 0) + rate
         if prod:
             prod_font = _font(10)
-            parts = [f"+{rate:.1f}/s {res[:3]}" for res, rate in prod.items()]
+            parts = [f"+{rate:.1f}/s {res[:RESOURCE_MAX_CHAR]}" for res, rate in prod.items()]
             pt = prod_font.render("  ".join(parts), True, GREEN)
             surface.blit(pt, (pr.x + 10, y))
             y += 14
@@ -318,13 +318,13 @@ class PlanetUI:
             surface.blit(nt, (pr.x + 12, ry + 6))
 
             # Cost
-            cost_str = "  ".join(f"{amt}{r[:2]}" for r, amt in defn["cost"].items())
+            cost_str = "  ".join(f"{amt}{r[:RESOURCE_MAX_CHAR]}" for r, amt in defn["cost"].items())
             ct = sf.render(cost_str, True, GRAY)
             surface.blit(ct, (pr.x + 12, ry + 22))
 
             # Produces
             if defn["produces"]:
-                prod_str = "+" + "  +".join(f"{v:.1f}/s {k[:3]}" for k, v in defn["produces"].items())
+                prod_str = "+" + "  +".join(f"{v:.1f}/s {k[:RESOURCE_MAX_CHAR]}" for k, v in defn["produces"].items())
                 pt = sf.render(prod_str, True, GREEN)
                 surface.blit(pt, (pr.x + 12, ry + 33))
 
@@ -364,7 +364,7 @@ class PlanetUI:
             nt = f.render(stype, True, CYAN)
             surface.blit(nt, (pr.x + 12, ry + 6))
 
-            cost_str = "  ".join(f"{amt}{r[:2]}" for r, amt in defn["cost"].items())
+            cost_str = "  ".join(f"{amt}{r[:RESOURCE_MAX_CHAR]}" for r, amt in defn["cost"].items())
             ct = sf.render(f"Cost: {cost_str}  |  {defn['time']}s  |  SPD:{defn['speed']}", True, GRAY)
             surface.blit(ct, (pr.x + 12, ry + 22))
 
@@ -426,7 +426,7 @@ class PlanetUI:
 
             cargo_total = sum(ship.cargo.values())
             if cargo_total > 0:
-                cargo_str = "  ".join(f"{int(v)}{r[:2]}" for r, v in ship.cargo.items() if v > 0)
+                cargo_str = "  ".join(f"{int(v)} {r[:RESOURCE_MAX_CHAR]}" for r, v in ship.cargo.items() if v > 0)
                 ct = sf.render(f"Cargo: {cargo_str}", True, GOLD)
                 surface.blit(ct, (pr.x + 12, ry + 36))
 

@@ -56,6 +56,7 @@ RESOURCE_COLORS = {
     "oil":       (80, 80, 100),
     "deuterium": (60, 160, 255),
 }
+RESOURCE_MAX_CHAR = 10
 
 # Planet types → which resources they carry
 PLANET_RESOURCES = {
