@@ -1,4 +1,5 @@
 import pygame
+import math
 from constants import *
 
 def _font(size):
@@ -506,3 +507,183 @@ class PlanetUI:
                 line += f"  +{remainder} more"
             qt = qf.render(line, True, (95, 110, 140))
             surface.blit(qt, (pr.x + 10, y + 48))
+
+
+# ══════════════════════════════════════════════════════════════════
+class ShipUI:
+    PANEL_W = 330
+    PANEL_H = 280
+
+    def __init__(self):
+        self.ship = None
+        self.visible = False
+
+    def open(self, ship):
+        self.ship = ship
+        self.visible = True
+
+    def close(self):
+        self.visible = False
+        self.ship = None
+
+    @property
+    def panel_rect(self):
+        return pygame.Rect(10, SCREEN_H - self.PANEL_H - 36, self.PANEL_W, self.PANEL_H)
+
+    def handle_event(self, event):
+        if not self.visible:
+            return False
+        pos = pygame.mouse.get_pos()
+        if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+            if not self.panel_rect.collidepoint(pos):
+                self.close()
+                return False
+        return self.panel_rect.collidepoint(pos)
+
+    def draw(self, surface):
+        if not self.visible or not self.ship:
+            return
+        s = self.ship
+        pr = self.panel_rect
+
+        # Background
+        panel = pygame.Surface((pr.w, pr.h), pygame.SRCALPHA)
+        panel.fill((10, 14, 30, 225))
+        pygame.draw.rect(panel, CYAN, (0, 0, pr.w, pr.h), 2, border_radius=8)
+        surface.blit(panel, pr.topleft)
+
+        y = pr.y + 10
+
+        # ── Title ────────────────────────────────────────────────
+        title_f = _font(15)
+        title_t = title_f.render(f"{s.type}  #{s.id}", True, CYAN)
+        surface.blit(title_t, (pr.x + 12, y))
+        y += 20
+
+        sub_f = _font(11)
+        base_t = sub_f.render(f"Base : {s.home.name}", True, GRAY)
+        surface.blit(base_t, (pr.x + 12, y))
+        y += 16
+
+        pygame.draw.line(surface, (40, 80, 120), (pr.x + 8, y), (pr.x + pr.w - 8, y))
+        y += 8
+
+        # ── Mission status ────────────────────────────────────────
+        from ship import MISSION_IDLE, MISSION_TRAVEL, MISSION_MINE, MISSION_RETURN
+        STATE_LABELS = {
+            MISSION_IDLE:   "En attente",
+            MISSION_TRAVEL: "En transit",
+            MISSION_MINE:   "En extraction",
+            MISSION_RETURN: "Retour",
+        }
+        STATE_COLORS = {
+            MISSION_IDLE:   GRAY,
+            MISSION_TRAVEL: CYAN,
+            MISSION_MINE:   ORANGE,
+            MISSION_RETURN: GREEN,
+        }
+        sf = _font(12)
+        state_label = STATE_LABELS.get(s.state, s.state)
+        state_color = STATE_COLORS.get(s.state, WHITE)
+
+        mission_type = getattr(s, "_mission_type", None)
+        if s.state == MISSION_TRAVEL and mission_type:
+            state_label += f"  ({mission_type})"
+        st = sf.render(f"Statut : {state_label}", True, state_color)
+        surface.blit(st, (pr.x + 12, y))
+        y += 18
+
+        # ── Route ────────────────────────────────────────────────
+        df = _font(11)
+        dep_t = df.render(f"Départ      :  {s.home.name}", True, UI_TEXT)
+        surface.blit(dep_t, (pr.x + 12, y))
+        y += 15
+
+        if s.state in (MISSION_TRAVEL, MISSION_MINE) and s.target_planet:
+            dest_name = s.target_planet.name
+        elif s.state == MISSION_RETURN:
+            dest_name = s.home.name
+        else:
+            dest_name = "—"
+        dest_t = df.render(f"Destination :  {dest_name}", True, UI_TEXT)
+        surface.blit(dest_t, (pr.x + 12, y))
+        y += 15
+
+        # ETA
+        if s.state == MISSION_TRAVEL and s.target_planet:
+            dist = math.hypot(s.target_planet.x - s.x, s.target_planet.y - s.y)
+            eta = dist / s.speed
+        elif s.state == MISSION_RETURN:
+            dist = math.hypot(s.home.x - s.x, s.home.y - s.y)
+            eta = dist / s.speed
+        else:
+            eta = None
+
+        if eta is not None:
+            eta_str = f"{int(eta//60)}m {int(eta%60)}s" if eta >= 60 else f"{eta:.0f}s"
+            eta_t = df.render(f"ETA         :  {eta_str}", True, CYAN)
+            surface.blit(eta_t, (pr.x + 12, y))
+            y += 15
+
+            # Mini progress bar (distance covered)
+            if s.state == MISSION_TRAVEL and s.target_planet:
+                total_dist = math.hypot(s.target_planet.x - s.home.x,
+                                        s.target_planet.y - s.home.y)
+            elif s.state == MISSION_RETURN:
+                total_dist = math.hypot(s.home.x - s.target_planet.x if s.target_planet
+                                        else s.home.x - s.x,
+                                        s.home.y - s.target_planet.y if s.target_planet
+                                        else s.home.y - s.y)
+            else:
+                total_dist = 1
+            progress = max(0.0, min(1.0, 1.0 - dist / max(total_dist, 1)))
+            bar_x, bar_y = pr.x + 12, y
+            bar_w, bar_h = pr.w - 24, 7
+            pygame.draw.rect(surface, (22, 28, 48), (bar_x, bar_y, bar_w, bar_h), border_radius=3)
+            fw = int(bar_w * progress)
+            if fw > 0:
+                pygame.draw.rect(surface, CYAN, (bar_x, bar_y, fw, bar_h), border_radius=3)
+                highlight = tuple(min(255, c + 60) for c in CYAN)
+                pygame.draw.rect(surface, highlight, (bar_x, bar_y, fw, 2), border_radius=3)
+            pygame.draw.rect(surface, (50, 65, 100), (bar_x, bar_y, bar_w, bar_h), 1, border_radius=3)
+            y += 12
+
+        # Mining timer
+        if s.state == MISSION_MINE:
+            remaining = max(0, getattr(s, "_mine_timer", 0))
+            mt = df.render(f"Extraction  :  {remaining:.0f}s restantes", True, ORANGE)
+            surface.blit(mt, (pr.x + 12, y))
+            y += 15
+
+        pygame.draw.line(surface, (40, 80, 120), (pr.x + 8, y), (pr.x + pr.w - 8, y))
+        y += 8
+
+        # ── Cargo ────────────────────────────────────────────────
+        cargo_total = sum(s.cargo.values())
+        cf = _font(11)
+        cap_color = ORANGE if cargo_total >= s.capacity > 0 else UI_TEXT
+        cap_t = cf.render(f"Cargaison   :  {int(cargo_total)} / {s.capacity}", True, cap_color)
+        surface.blit(cap_t, (pr.x + 12, y))
+        y += 14
+
+        if cargo_total > 0:
+            items = [(r, v) for r, v in s.cargo.items() if v > 0]
+            col_w = (pr.w - 24) // min(len(items), 3)
+            for i, (res, amt) in enumerate(items):
+                color = RESOURCE_COLORS.get(res, WHITE)
+                rt = _font(10).render(f"{res[:3].upper()}: {int(amt)}", True, color)
+                surface.blit(rt, (pr.x + 14 + (i % 3) * col_w, y + (i // 3) * 13))
+            y += ((len(items) - 1) // 3 + 1) * 13
+        else:
+            et = cf.render("  (vide)", True, (55, 65, 85))
+            surface.blit(et, (pr.x + 12, y))
+            y += 13
+
+        pygame.draw.line(surface, (40, 80, 120), (pr.x + 8, y + 2), (pr.x + pr.w - 8, y + 2))
+        y += 10
+
+        # ── Stats ────────────────────────────────────────────────
+        speed_t = _font(10).render(
+            f"Vitesse : {s.speed} px/s   Capacité : {s.capacity}",
+            True, (80, 95, 120))
+        surface.blit(speed_t, (pr.x + 12, y))

@@ -121,6 +121,21 @@ class Ship:
         self.x += (dx / dist) * step
         self.y += (dy / dist) * step
 
+    @property
+    def is_docked(self):
+        return self.state == MISSION_IDLE
+
+    # ── hit-testing ──────────────────────────────────────────────
+    def is_clicked(self, mx, my, camera):
+        sx, sy = camera.world_to_screen(self.x, self.y)
+        r = max(8, int(SHIP_DRAW_SIZE * camera.zoom)) // 2 + 8
+        return (mx - sx) ** 2 + (my - sy) ** 2 <= r ** 2
+
+    def draw_hover(self, surface, camera):
+        sx, sy = camera.world_to_screen(self.x, self.y)
+        r = max(8, int(SHIP_DRAW_SIZE * camera.zoom)) // 2 + 10
+        pygame.draw.circle(surface, CYAN, (sx, sy), r, 2)
+
     # ── draw ─────────────────────────────────────────────────────
     def draw(self, surface, camera):
         sx, sy = camera.world_to_screen(self.x, self.y)
