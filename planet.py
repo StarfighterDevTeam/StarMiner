@@ -71,8 +71,16 @@ class Planet:
     def has_shipyard(self):
         return any(b.name == "Shipyard" for b in self.buildings)
 
+    @property
+    def shipyard_level(self):
+        sy = next((b for b in self.buildings if b.name == "Shipyard"), None)
+        return sy.level if sy else 0
+
     def building_names(self):
         return [b.name for b in self.buildings]
+
+    def get_building(self, bname):
+        return next((b for b in self.buildings if b.name == bname), None)
 
     # ── update ───────────────────────────────────────────────────
     def update(self, dt, all_ships):
@@ -83,16 +91,20 @@ class Planet:
         for b in self.buildings:
             b.update(dt, self.resources)
 
-        # Build queue
+        # Build / upgrade queue
         if self.build_queue:
             entry = self.build_queue[0]
             entry["time_left"] -= dt
             if entry["time_left"] <= 0:
                 self.build_queue.pop(0)
-                b = Building(entry["name"])
-                self.buildings.append(b)
+                if entry.get("upgrade"):
+                    b = self.get_building(entry["name"])
+                    if b:
+                        b.level_up()
+                else:
+                    self.buildings.append(Building(entry["name"]))
 
-        # Ship queue
+        # Ship queue — apply shipyard time factor
         if self.ship_queue and self.has_shipyard:
             entry = self.ship_queue[0]
             entry["time_left"] -= dt
@@ -121,15 +133,44 @@ class Planet:
         ok, _ = self.can_build(bname)
         if not ok: return False
         defn = BUILDING_DEFS[bname]
-        for res, amt in defn["cost"].items():
+        cost = dict(defn["cost"])
+        for res, amt in cost.items():
             self.resources[res] -= amt
-        self.build_queue.append({"name": bname, "time_left": defn["time"], "time_total": defn["time"]})
+        self.build_queue.append({"name": bname, "time_left": defn["time"],
+                                 "time_total": defn["time"], "cost": cost})
+        return True
+
+    def can_upgrade(self, bname):
+        b = self.get_building(bname)
+        if not b: return False, "Not built"
+        if b.level >= LEVEL_MAX: return False, "Niveau max"
+        if any(e["name"] == bname and e.get("upgrade") for e in self.build_queue):
+            return False, "Déjà en upgrade"
+        if len(self.build_queue) >= QUEUE_MAX: return False, "Queue full"
+        for res, amt in b.upgrade_cost().items():
+            if self.resources.get(res, 0) < amt: return False, f"Need {amt} {res}"
+        return True, ""
+
+    def start_upgrade(self, bname):
+        ok, _ = self.can_upgrade(bname)
+        if not ok: return False
+        b = self.get_building(bname)
+        cost = b.upgrade_cost()
+        for res, amt in cost.items():
+            self.resources[res] -= amt
+        t = b.upgrade_time()
+        self.build_queue.append({
+            "name": bname, "upgrade": True, "to_level": b.level + 1,
+            "time_left": t, "time_total": t, "cost": cost,
+        })
         return True
 
     def can_build_ship(self, stype):
         if not self.has_shipyard: return False, "No Shipyard"
         if len(self.ship_queue) >= QUEUE_MAX: return False, "Queue full"
         defn = SHIP_DEFS[stype]
+        req = defn.get("shipyard_level", 1)
+        if self.shipyard_level < req: return False, f"Chantier Niv.{req} requis"
         for res, amt in defn["cost"].items():
             if self.resources.get(res, 0) < amt: return False, f"Need {amt} {res}"
         return True, ""
@@ -140,8 +181,32 @@ class Planet:
         defn = SHIP_DEFS[stype]
         for res, amt in defn["cost"].items():
             self.resources[res] -= amt
-        self.ship_queue.append({"ship_type": stype, "time_left": defn["time"], "time_total": defn["time"]})
+        cost = dict(defn["cost"])
+        sy = self.get_building("Shipyard")
+        factor = sy.ship_time_factor() if sy else 1.0
+        t = defn["time"] * factor
+        self.ship_queue.append({"ship_type": stype, "time_left": t, "time_total": t, "cost": cost})
         return True
+
+    def _refund(self, entry):
+        for res, amt in entry.get("cost", {}).items():
+            self.resources[res] = self.resources.get(res, 0) + amt
+
+    def cancel_build(self):
+        if self.build_queue:
+            self._refund(self.build_queue.pop(0))
+
+    def cancel_all_builds(self):
+        while self.build_queue:
+            self._refund(self.build_queue.pop(0))
+
+    def cancel_ship(self):
+        if self.ship_queue:
+            self._refund(self.ship_queue.pop(0))
+
+    def cancel_all_ships(self):
+        while self.ship_queue:
+            self._refund(self.ship_queue.pop(0))
 
     def colonize(self):
         self.colonized = True
@@ -150,7 +215,12 @@ class Planet:
     def debug_complete_all(self, all_ships):
         while self.build_queue:
             entry = self.build_queue.pop(0)
-            self.buildings.append(Building(entry["name"]))
+            if entry.get("upgrade"):
+                b = self.get_building(entry["name"])
+                if b:
+                    b.level_up()
+            else:
+                self.buildings.append(Building(entry["name"]))
         while self.ship_queue:
             entry = self.ship_queue.pop(0)
             self._spawn_ship(entry["ship_type"], all_ships)

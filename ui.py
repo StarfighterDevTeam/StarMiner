@@ -154,12 +154,32 @@ class PlanetUI:
             p.colonize()
             self.show_message(f"{p.name} colonized!")
 
+        elif tag == "cancel_build_one":
+            p.cancel_build()
+            self.show_message("Production annulée (remboursée)")
+        elif tag == "cancel_build_all":
+            p.cancel_all_builds()
+            self.show_message("Toutes les productions annulées")
+        elif tag == "cancel_ship_one":
+            p.cancel_ship()
+            self.show_message("Construction annulée (remboursée)")
+        elif tag == "cancel_ship_all":
+            p.cancel_all_ships()
+            self.show_message("Toutes les constructions annulées")
+
+        elif tag.startswith("upgrade:"):
+            bname = tag[8:]
+            ok = p.start_upgrade(bname)
+            b = p.get_building(bname)
+            lvl = b.level if b else "?"
+            self.show_message(f"Upgrade {bname} → Niv.{lvl + 1 if b else '?'}..." if ok else "Upgrade impossible")
+
         elif tag.startswith("explore:") or tag.startswith("mine:"):
             mtype, sid = tag.split(":")
             ship = next((s for s in p.ships if s.id == int(sid)), None)
             if ship:
                 if self._mission_mode and self._mission_mode == (mtype, ship):
-                    self._mission_mode = None          # toggle: annuler
+                    self._mission_mode = None
                     self.show_message("Mission annulée")
                 else:
                     self._mission_mode = (mtype, ship)
@@ -271,7 +291,7 @@ class PlanetUI:
 
         # ── Tab content ──────────────────────────────────────────
         content_y = y
-        _QUEUE_SEC_H = 154   # height reserved at bottom for both queues
+        _QUEUE_SEC_H = 202   # height reserved at bottom for both queues (94*2 + 14)
         content_h = pr.y + pr.h - _QUEUE_SEC_H - 14 - y
         clip = pygame.Rect(pr.x, content_y, pr.w, max(0, content_h))
         surface.set_clip(clip)
@@ -308,55 +328,80 @@ class PlanetUI:
     def _draw_buildings(self, surface, pr, y, p):
         f = _font(12)
         sf = _font(10)
-        built = p.building_names()
         items = list(BUILDING_DEFS.items())
-        row_h = 46
+        row_h = 52
         scroll_offset = self._build_scroll * row_h
         ry = y - scroll_offset
+        mouse_pos = pygame.mouse.get_pos()
 
         for bname, defn in items:
             if ry + row_h < y or ry > y + 400:
                 ry += row_h
                 continue
-            # Is this building available for this planet type?
-            available = p.type in BUILDING_PLANET_TYPES.get(bname, [])
-            if not available:
+            if p.type not in BUILDING_PLANET_TYPES.get(bname, []):
                 ry += row_h
                 continue
 
-            is_built = bname in built
-            in_queue = any(e["name"] == bname for e in p.build_queue)
+            b = p.get_building(bname)
+            is_built = b is not None
+            in_build_queue  = any(not e.get("upgrade") and e["name"] == bname for e in p.build_queue)
+            in_upgrade_queue = any(e.get("upgrade") and e["name"] == bname for e in p.build_queue)
 
-            bg_color = (20, 40, 20) if is_built else (20, 20, 35)
+            bg_color = (18, 38, 18) if is_built else (18, 18, 32)
             pygame.draw.rect(surface, bg_color, (pr.x + 6, ry + 2, pr.w - 12, row_h - 4), border_radius=4)
             pygame.draw.rect(surface, UI_BORDER, (pr.x + 6, ry + 2, pr.w - 12, row_h - 4), 1, border_radius=4)
 
+            # Name + level badge
             name_color = GREEN if is_built else (UI_TEXT if p.colonized else GRAY)
             nt = f.render(bname, True, name_color)
-            surface.blit(nt, (pr.x + 12, ry + 6))
+            surface.blit(nt, (pr.x + 12, ry + 5))
+            if is_built:
+                lvl_color = GOLD if b.level >= 10 else CYAN
+                lt = _font(10).render(f"Niv.{b.level}", True, lvl_color)
+                surface.blit(lt, (pr.x + 12 + nt.get_width() + 6, ry + 7))
 
-            # Cost
-            cost_str = "  ".join(f"{amt}{r[:RESOURCE_MAX_CHAR]}" for r, amt in defn["cost"].items())
-            ct = sf.render(cost_str, True, GRAY)
-            surface.blit(ct, (pr.x + 12, ry + 22))
+            # Cost / upgrade cost
+            if is_built and b.level < 10:
+                cost_dict = b.upgrade_cost()
+                cost_str = "  ".join(f"{amt}{r[:3]}" for r, amt in cost_dict.items())
+                label = f"Upgrade: {cost_str}"
+            else:
+                cost_str = "  ".join(f"{amt}{r[:3]}" for r, amt in defn["cost"].items())
+                label = f"Coût: {cost_str}"
+            ct = sf.render(label, True, GRAY)
+            surface.blit(ct, (pr.x + 12, ry + 21))
 
-            # Produces
-            if defn["produces"]:
-                prod_str = "+" + "  +".join(f"{v:.1f}/s {k[:RESOURCE_MAX_CHAR]}" for k, v in defn["produces"].items())
+            # Produces (current level)
+            if is_built and b.produces:
+                prod_str = "+" + "  +".join(f"{v:.1f}/s {k[:3]}" for k, v in b.produces.items())
                 pt = sf.render(prod_str, True, GREEN)
-                surface.blit(pt, (pr.x + 12, ry + 33))
+                surface.blit(pt, (pr.x + 12, ry + 35))
+            elif not is_built and defn["produces"]:
+                prod_str = "+" + "  +".join(f"{v:.1f}/s {k[:3]}" for k, v in defn["produces"].items())
+                pt = sf.render(prod_str, True, (60, 130, 70))
+                surface.blit(pt, (pr.x + 12, ry + 35))
 
-            # Button
-            if p.colonized and not is_built and not in_queue:
-                can, _ = p.can_build(bname)
-                btn = Button((pr.x + pr.w - 82, ry + 10, 72, 22),
-                             "Build", enabled=can, tooltip=f"build:{bname}")
-                btn.handle_mouse(pygame.mouse.get_pos())
-                btn.draw(surface)
-                self._buttons.append(btn)
-            elif in_queue:
-                qt = sf.render("In queue", True, ORANGE)
-                surface.blit(qt, (pr.x + pr.w - 80, ry + 14))
+            # Right-side button
+            btn_x = pr.x + pr.w - 86
+            if p.colonized:
+                if not is_built and not in_build_queue:
+                    can, _ = p.can_build(bname)
+                    btn = Button((btn_x, ry + 8, 76, 20), "Construire",
+                                 enabled=can, tooltip=f"build:{bname}")
+                    btn.handle_mouse(mouse_pos); btn.draw(surface)
+                    self._buttons.append(btn)
+                elif in_build_queue:
+                    surface.blit(sf.render("En constr.", True, ORANGE), (btn_x, ry + 12))
+                elif is_built and b.level < 10 and not in_upgrade_queue:
+                    can, _ = p.can_upgrade(bname)
+                    btn = Button((btn_x, ry + 8, 76, 20), f"Upg. Niv.{b.level+1}",
+                                 enabled=can, tooltip=f"upgrade:{bname}")
+                    btn.handle_mouse(mouse_pos); btn.draw(surface)
+                    self._buttons.append(btn)
+                elif in_upgrade_queue:
+                    surface.blit(sf.render(f"Upg. en cours", True, ORANGE), (btn_x, ry + 12))
+                elif is_built and b.level >= 10:
+                    surface.blit(sf.render("MAX", True, GOLD), (btn_x + 20, ry + 12))
 
             ry += row_h
 
@@ -364,38 +409,62 @@ class PlanetUI:
         f = _font(12)
         sf = _font(10)
         if not p.colonized:
-            t = f.render("Colonize planet first", True, GRAY)
-            surface.blit(t, (pr.x + 20, y + 10))
+            surface.blit(f.render("Colonisez la planète d'abord", True, GRAY), (pr.x + 20, y + 10))
             return
         if not p.has_shipyard:
-            t = f.render("Build a Shipyard first", True, GRAY)
-            surface.blit(t, (pr.x + 20, y + 10))
+            surface.blit(f.render("Construisez un Chantier Naval d'abord", True, GRAY), (pr.x + 20, y + 10))
             return
 
-        row_h = 50
-        ry = y + 4
+        sy_level = p.shipyard_level
+        sy = p.get_building("Shipyard")
+        factor = sy.ship_time_factor() if sy else 1.0
+
+        # Shipyard level header
+        lf = _font(11)
+        lc = GOLD if sy_level >= LEVEL_MAX else CYAN
+        lt = lf.render(f"Chantier Naval  Niv.{sy_level}  |  Temps construction: -{int((1-factor)*100)}%", True, lc)
+        surface.blit(lt, (pr.x + 10, y + 2))
+        y += 16
+
+        row_h = 52
+        ry = y + 2
+        mouse_pos = pygame.mouse.get_pos()
         for stype, defn in SHIP_DEFS.items():
-            bg_color = (20, 25, 40)
+            req_lvl = defn.get("shipyard_level", 1)
+            unlocked = sy_level >= req_lvl
+
+            bg_color = (20, 28, 42) if unlocked else (18, 18, 26)
             pygame.draw.rect(surface, bg_color, (pr.x + 6, ry + 2, pr.w - 12, row_h - 4), border_radius=4)
             pygame.draw.rect(surface, UI_BORDER, (pr.x + 6, ry + 2, pr.w - 12, row_h - 4), 1, border_radius=4)
 
-            nt = f.render(stype, True, CYAN)
-            surface.blit(nt, (pr.x + 12, ry + 6))
+            name_color = CYAN if unlocked else (50, 60, 80)
+            nt = f.render(stype, True, name_color)
+            surface.blit(nt, (pr.x + 12, ry + 5))
 
-            cost_str = "  ".join(f"{amt}{r[:RESOURCE_MAX_CHAR]}" for r, amt in defn["cost"].items())
-            ct = sf.render(f"Cost: {cost_str}  |  {defn['time']}s  |  SPD:{defn['speed']}", True, GRAY)
+            # Lock / level requirement badge
+            req_t = sf.render(f"Niv.{req_lvl}", True, GOLD if unlocked else GRAY)
+            surface.blit(req_t, (pr.x + 12 + nt.get_width() + 6, ry + 7))
+
+            cost_str = "  ".join(f"{amt}{r[:3]}" for r, amt in defn["cost"].items())
+            actual_time = int(defn["time"] * factor)
+            info = f"{cost_str}  |  {actual_time}s  Vit:{defn['speed']}  Cap:{defn['capacity']}"
+            ct = sf.render(info, True, GRAY if unlocked else (40, 45, 55))
             surface.blit(ct, (pr.x + 12, ry + 22))
 
             missions_str = " / ".join(defn["missions"])
-            mt = sf.render(f"Missions: {missions_str}", True, UI_TEXT)
-            surface.blit(mt, (pr.x + 12, ry + 34))
+            mt = sf.render(f"Missions: {missions_str}", True, UI_TEXT if unlocked else (40, 45, 55))
+            surface.blit(mt, (pr.x + 12, ry + 36))
 
-            can, _ = p.can_build_ship(stype)
-            btn = Button((pr.x + pr.w - 82, ry + 14, 72, 22),
-                         "Build", enabled=can, tooltip=f"ship:{stype}")
-            btn.handle_mouse(pygame.mouse.get_pos())
-            btn.draw(surface)
-            self._buttons.append(btn)
+            if unlocked:
+                can, _ = p.can_build_ship(stype)
+                btn = Button((pr.x + pr.w - 82, ry + 15, 72, 22),
+                             "Construire", enabled=can, tooltip=f"ship:{stype}")
+                btn.handle_mouse(mouse_pos); btn.draw(surface)
+                self._buttons.append(btn)
+            else:
+                lock_t = sf.render(f"[Chantier Niv.{req_lvl}]", True, (55, 60, 75))
+                surface.blit(lock_t, (pr.x + pr.w - 100, ry + 20))
+
             ry += row_h
 
     def _draw_fleet(self, surface, pr, y, p):
@@ -454,12 +523,12 @@ class PlanetUI:
     def _draw_queue_section(self, surface, pr, y, p):
         self._draw_single_queue(surface, pr, y,
                                 p.build_queue, "BUILD QUEUE", ORANGE, is_ship=False)
-        self._draw_single_queue(surface, pr, y + 72 + 6,
+        self._draw_single_queue(surface, pr, y + 94 + 6,
                                 p.ship_queue, "SHIP QUEUE", CYAN, is_ship=True)
 
     def _draw_single_queue(self, surface, pr, y, queue, label, color, is_ship):
         from constants import QUEUE_MAX
-        BLOCK_H = 72
+        BLOCK_H = 94
 
         # Background block
         pygame.draw.rect(surface, (12, 18, 36),
@@ -486,7 +555,12 @@ class PlanetUI:
 
         # ── Current item ──────────────────────────────────────────
         entry = queue[0]
-        name       = entry["ship_type"] if is_ship else entry["name"]
+        if is_ship:
+            name = entry["ship_type"]
+        elif entry.get("upgrade"):
+            name = f"Upgrade {entry['name']} -> Niv.{entry['to_level']}"
+        else:
+            name = entry["name"]
         time_left  = entry["time_left"]
         time_total = entry.get("time_total", max(time_left, 1))
         progress   = max(0.0, min(1.0, 1.0 - time_left / max(time_total, 0.001)))
@@ -522,13 +596,32 @@ class PlanetUI:
             chips = []
             max_show = 4
             for e in queue[1: max_show + 1]:
-                chips.append(e["ship_type"] if is_ship else e["name"])
+                if is_ship:
+                    chips.append(e["ship_type"])
+                elif e.get("upgrade"):
+                    chips.append(f"Upg.{e['name'].split()[0]}->Niv.{e['to_level']}")
+                else:
+                    chips.append(e["name"])
             remainder = len(queue) - 1 - len(chips)
             line = "  ›  ".join(chips)
             if remainder > 0:
                 line += f"  +{remainder} more"
             qt = qf.render(line, True, (95, 110, 140))
             surface.blit(qt, (pr.x + 10, y + 48))
+
+        # ── Cancel buttons ────────────────────────────────────────
+        tag_one = "cancel_ship_one" if is_ship else "cancel_build_one"
+        tag_all = "cancel_ship_all" if is_ship else "cancel_build_all"
+        mouse_pos = pygame.mouse.get_pos()
+        btn_y = y + 72
+        btn_one = Button((pr.x + 10,      btn_y, 100, 16), "Annuler",
+                         enabled=len(queue) > 0, tooltip=tag_one)
+        btn_all = Button((pr.x + 116,     btn_y, 100, 16), "Annuler tout",
+                         enabled=len(queue) > 0, tooltip=tag_all)
+        for btn in (btn_one, btn_all):
+            btn.handle_mouse(mouse_pos)
+            btn.draw(surface)
+            self._buttons.append(btn)
 
 
 # ══════════════════════════════════════════════════════════════════
