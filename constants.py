@@ -57,6 +57,7 @@ RESOURCE_COLORS = {
     "deuterium": (60, 160, 255),
 }
 RESOURCE_MAX_CHAR = 10
+QUEUE_MAX = 10          # max items per production queue
 
 # Planet types → which resources they carry
 PLANET_RESOURCES = {

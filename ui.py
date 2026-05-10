@@ -248,8 +248,9 @@ class PlanetUI:
 
         # ── Tab content ──────────────────────────────────────────
         content_y = y
-        content_h = pr.y + pr.h - 10 - y
-        clip = pygame.Rect(pr.x, content_y, pr.w, content_h)
+        _QUEUE_SEC_H = 154   # height reserved at bottom for both queues
+        content_h = pr.y + pr.h - _QUEUE_SEC_H - 14 - y
+        clip = pygame.Rect(pr.x, content_y, pr.w, max(0, content_h))
         surface.set_clip(clip)
 
         if self._tab == "buildings":
@@ -261,17 +262,11 @@ class PlanetUI:
 
         surface.set_clip(None)
 
-        # ── Queue info ───────────────────────────────────────────
-        if p.build_queue:
-            entry = p.build_queue[0]
-            q_font = _font(11)
-            qt = q_font.render(f"Building: {entry['name']}  ({entry['time_left']:.0f}s)", True, ORANGE)
-            surface.blit(qt, (pr.x + 10, pr.y + pr.h - 32))
-        if p.ship_queue:
-            entry = p.ship_queue[0]
-            q_font = _font(11)
-            qt = q_font.render(f"Producing: {entry['ship_type']}  ({entry['time_left']:.0f}s)", True, CYAN)
-            surface.blit(qt, (pr.x + 10, pr.y + pr.h - 18))
+        # ── Production queues ─────────────────────────────────────
+        queue_y = pr.y + pr.h - _QUEUE_SEC_H - 2
+        pygame.draw.line(surface, UI_BORDER,
+                         (pr.x + 8, queue_y - 5), (pr.x + pr.w - 8, queue_y - 5))
+        self._draw_queue_section(surface, pr, queue_y, p)
 
         # ── Message ──────────────────────────────────────────────
         if self._msg_timer > 0 and self._message:
@@ -431,3 +426,83 @@ class PlanetUI:
                 surface.blit(ct, (pr.x + 12, ry + 36))
 
             ry += row_h
+
+    # ── Queue section (bottom of panel) ──────────────────────────
+    def _draw_queue_section(self, surface, pr, y, p):
+        self._draw_single_queue(surface, pr, y,
+                                p.build_queue, "BUILD QUEUE", ORANGE, is_ship=False)
+        self._draw_single_queue(surface, pr, y + 72 + 6,
+                                p.ship_queue, "SHIP QUEUE", CYAN, is_ship=True)
+
+    def _draw_single_queue(self, surface, pr, y, queue, label, color, is_ship):
+        from constants import QUEUE_MAX
+        BLOCK_H = 72
+
+        # Background block
+        pygame.draw.rect(surface, (12, 18, 36),
+                         (pr.x + 6, y, pr.w - 12, BLOCK_H - 2), border_radius=4)
+        pygame.draw.rect(surface, (40, 55, 85),
+                         (pr.x + 6, y, pr.w - 12, BLOCK_H - 2), 1, border_radius=4)
+
+        qlen = len(queue)
+        lf = _font(10)
+
+        # Label (left) + count badge (right)
+        lt = lf.render(label, True, color)
+        surface.blit(lt, (pr.x + 10, y + 4))
+
+        cnt_color = RED if qlen >= QUEUE_MAX else (GRAY if qlen == 0 else WHITE)
+        cnt_t = lf.render(f"[{qlen}/{QUEUE_MAX}]", True, cnt_color)
+        surface.blit(cnt_t, (pr.x + pr.w - cnt_t.get_width() - 10, y + 4))
+
+        if not queue:
+            sf = _font(9)
+            empty_t = sf.render("(empty)", True, (55, 65, 85))
+            surface.blit(empty_t, (pr.x + 10, y + 22))
+            return
+
+        # ── Current item ──────────────────────────────────────────
+        entry = queue[0]
+        name       = entry["ship_type"] if is_ship else entry["name"]
+        time_left  = entry["time_left"]
+        time_total = entry.get("time_total", max(time_left, 1))
+        progress   = max(0.0, min(1.0, 1.0 - time_left / max(time_total, 0.001)))
+        pct        = int(progress * 100)
+
+        # Item name
+        nf = _font(11)
+        nt = nf.render(name, True, WHITE)
+        surface.blit(nt, (pr.x + 10, y + 18))
+
+        # Time + %
+        sf = _font(9)
+        tt = sf.render(f"{time_left:.0f}s  {pct}%", True, GRAY)
+        surface.blit(tt, (pr.x + pr.w - tt.get_width() - 10, y + 20))
+
+        # Progress bar
+        bar_x = pr.x + 10
+        bar_y = y + 33
+        bar_w = pr.w - 20
+        bar_h = 9
+        pygame.draw.rect(surface, (22, 28, 48), (bar_x, bar_y, bar_w, bar_h), border_radius=3)
+        fill_w = int(bar_w * progress)
+        if fill_w > 0:
+            pygame.draw.rect(surface, color, (bar_x, bar_y, fill_w, bar_h), border_radius=3)
+            # Bright highlight strip at top of filled bar
+            highlight = tuple(min(255, c + 60) for c in color)
+            pygame.draw.rect(surface, highlight, (bar_x, bar_y, fill_w, 2), border_radius=3)
+        pygame.draw.rect(surface, (50, 65, 100), (bar_x, bar_y, bar_w, bar_h), 1, border_radius=3)
+
+        # ── Queue list (items 1+) ─────────────────────────────────
+        if len(queue) > 1:
+            qf = _font(9)
+            chips = []
+            max_show = 4
+            for e in queue[1: max_show + 1]:
+                chips.append(e["ship_type"] if is_ship else e["name"])
+            remainder = len(queue) - 1 - len(chips)
+            line = "  ›  ".join(chips)
+            if remainder > 0:
+                line += f"  +{remainder} more"
+            qt = qf.render(line, True, (95, 110, 140))
+            surface.blit(qt, (pr.x + 10, y + 48))

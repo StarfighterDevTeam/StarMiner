@@ -2,6 +2,7 @@ import pygame
 import random
 import os
 from constants import *
+from constants import QUEUE_MAX
 from building import Building
 
 _planet_images = {}
@@ -109,6 +110,8 @@ class Planet:
     def can_build(self, bname):
         defn = BUILDING_DEFS[bname]
         if bname in self.building_names(): return False, "Already built"
+        if any(e["name"] == bname for e in self.build_queue): return False, "Already in queue"
+        if len(self.build_queue) >= QUEUE_MAX: return False, "Queue full"
         if self.type not in BUILDING_PLANET_TYPES[bname]: return False, "Wrong planet type"
         for res, amt in defn["cost"].items():
             if self.resources.get(res, 0) < amt: return False, f"Need {amt} {res}"
@@ -120,11 +123,12 @@ class Planet:
         defn = BUILDING_DEFS[bname]
         for res, amt in defn["cost"].items():
             self.resources[res] -= amt
-        self.build_queue.append({"name": bname, "time_left": defn["time"]})
+        self.build_queue.append({"name": bname, "time_left": defn["time"], "time_total": defn["time"]})
         return True
 
     def can_build_ship(self, stype):
         if not self.has_shipyard: return False, "No Shipyard"
+        if len(self.ship_queue) >= QUEUE_MAX: return False, "Queue full"
         defn = SHIP_DEFS[stype]
         for res, amt in defn["cost"].items():
             if self.resources.get(res, 0) < amt: return False, f"Need {amt} {res}"
@@ -136,7 +140,7 @@ class Planet:
         defn = SHIP_DEFS[stype]
         for res, amt in defn["cost"].items():
             self.resources[res] -= amt
-        self.ship_queue.append({"ship_type": stype, "time_left": defn["time"]})
+        self.ship_queue.append({"ship_type": stype, "time_left": defn["time"], "time_total": defn["time"]})
         return True
 
     def colonize(self):
