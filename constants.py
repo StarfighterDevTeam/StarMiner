@@ -17,6 +17,7 @@ SCROLL_SPEED = 15
 ZOOM_MIN = 0.3
 ZOOM_MAX = 2.0
 ZOOM_STEP = 0.1
+ZOOM_INIT = 0.8
 
 # Stars background
 NUM_STARS_LAYER1 = 600     # slow parallax

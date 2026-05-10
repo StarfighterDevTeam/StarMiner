@@ -20,10 +20,11 @@ class Game:
         self._time_scale = 1.0
         self._running = True
 
-        # Center camera on home planet
+        # Center camera on home planet at initial zoom
+        self.camera.zoom = ZOOM_INIT
         home = self.planets[0]
-        self.camera.x = home.x - SCREEN_W / 2
-        self.camera.y = home.y - SCREEN_H / 2
+        self.camera.x = home.x - SCREEN_W / (2 * self.camera.zoom)
+        self.camera.y = home.y - SCREEN_H / (2 * self.camera.zoom)
 
     # ── main loop ────────────────────────────────────────────────
     def run(self):

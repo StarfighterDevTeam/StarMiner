@@ -3,9 +3,10 @@ from constants import WORLD_W, WORLD_H, SCREEN_W, SCREEN_H, ZOOM_MIN, ZOOM_MAX, 
 
 class Camera:
     def __init__(self):
-        self.x = WORLD_W // 2 - SCREEN_W // 2
-        self.y = WORLD_H // 2 - SCREEN_H // 2
         self.zoom = 1.0
+        self.x = (WORLD_W // 2 - SCREEN_W // 2)
+        self.y = (WORLD_H // 2 - SCREEN_H // 2)
+        
         self._drag_start = None
         self._cam_start = None
 
