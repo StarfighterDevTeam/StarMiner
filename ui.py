@@ -51,7 +51,7 @@ class Button:
 
 class PlanetUI:
     PANEL_W = 400
-    PANEL_H = 560
+    PANEL_H = 620
 
     def __init__(self):
         self.planet = None
@@ -328,82 +328,107 @@ class PlanetUI:
     def _draw_buildings(self, surface, pr, y, p):
         f = _font(12)
         sf = _font(10)
-        items = list(BUILDING_DEFS.items())
-        row_h = 52
-        scroll_offset = self._build_scroll * row_h
-        ry = y - scroll_offset
         mouse_pos = pygame.mouse.get_pos()
 
-        for bname, defn in items:
-            if ry + row_h < y or ry > y + 400:
-                ry += row_h
-                continue
-            if p.type not in BUILDING_PLANET_TYPES.get(bname, []):
+        # Collect only buildings available for this planet type
+        visible = [(bname, defn) for bname, defn in BUILDING_DEFS.items()
+                   if p.type in BUILDING_PLANET_TYPES.get(bname, [])]
+
+        row_h = 46
+        SB_W = 7                          # scrollbar width
+        content_w = pr.w - 12 - SB_W - 2 # row width (leaves room for scrollbar)
+        total_h = len(visible) * row_h
+        visible_h = pr.y + pr.h - 202 - 14 - y   # mirrors content_h in draw()
+
+        # Clamp scroll so last row is always reachable
+        max_scroll = max(0, (total_h - visible_h) // row_h + 1)
+        self._build_scroll = max(0, min(self._build_scroll, max_scroll))
+
+        scroll_offset = self._build_scroll * row_h
+        ry = y - scroll_offset
+
+        for bname, defn in visible:
+            if ry + row_h < y or ry > y + visible_h:
                 ry += row_h
                 continue
 
             b = p.get_building(bname)
             is_built = b is not None
-            in_build_queue  = any(not e.get("upgrade") and e["name"] == bname for e in p.build_queue)
-            in_upgrade_queue = any(e.get("upgrade") and e["name"] == bname for e in p.build_queue)
+            in_build_queue   = any(not e.get("upgrade") and e["name"] == bname for e in p.build_queue)
+            in_upgrade_queue = any(e.get("upgrade")     and e["name"] == bname for e in p.build_queue)
 
             bg_color = (18, 38, 18) if is_built else (18, 18, 32)
-            pygame.draw.rect(surface, bg_color, (pr.x + 6, ry + 2, pr.w - 12, row_h - 4), border_radius=4)
-            pygame.draw.rect(surface, UI_BORDER, (pr.x + 6, ry + 2, pr.w - 12, row_h - 4), 1, border_radius=4)
+            pygame.draw.rect(surface, bg_color,
+                             (pr.x + 6, ry + 2, content_w, row_h - 4), border_radius=4)
+            pygame.draw.rect(surface, UI_BORDER,
+                             (pr.x + 6, ry + 2, content_w, row_h - 4), 1, border_radius=4)
 
             # Name + level badge
             name_color = GREEN if is_built else (UI_TEXT if p.colonized else GRAY)
             nt = f.render(bname, True, name_color)
-            surface.blit(nt, (pr.x + 12, ry + 5))
+            surface.blit(nt, (pr.x + 12, ry + 4))
             if is_built:
-                lvl_color = GOLD if b.level >= 10 else CYAN
+                lvl_color = GOLD if b.level >= LEVEL_MAX else CYAN
                 lt = _font(10).render(f"Niv.{b.level}", True, lvl_color)
-                surface.blit(lt, (pr.x + 12 + nt.get_width() + 6, ry + 7))
+                surface.blit(lt, (pr.x + 12 + nt.get_width() + 6, ry + 6))
 
-            # Cost / upgrade cost
-            if is_built and b.level < 10:
+            # Cost line
+            if is_built and b.level < LEVEL_MAX:
                 cost_dict = b.upgrade_cost()
                 cost_str = "  ".join(f"{amt}{r[:3]}" for r, amt in cost_dict.items())
-                label = f"Upgrade: {cost_str}"
+                label = f"Upg: {cost_str}"
             else:
                 cost_str = "  ".join(f"{amt}{r[:3]}" for r, amt in defn["cost"].items())
-                label = f"Coût: {cost_str}"
+                label = f"Cout: {cost_str}"
             ct = sf.render(label, True, GRAY)
-            surface.blit(ct, (pr.x + 12, ry + 21))
+            surface.blit(ct, (pr.x + 12, ry + 20))
 
-            # Produces (current level)
-            if is_built and b.produces:
-                prod_str = "+" + "  +".join(f"{v:.1f}/s {k[:3]}" for k, v in b.produces.items())
-                pt = sf.render(prod_str, True, GREEN)
-                surface.blit(pt, (pr.x + 12, ry + 35))
-            elif not is_built and defn["produces"]:
-                prod_str = "+" + "  +".join(f"{v:.1f}/s {k[:3]}" for k, v in defn["produces"].items())
-                pt = sf.render(prod_str, True, (60, 130, 70))
-                surface.blit(pt, (pr.x + 12, ry + 35))
+            # Production line
+            produces = b.produces if is_built else defn.get("produces", {})
+            prod_color = GREEN if is_built else (60, 130, 70)
+            if produces:
+                prod_str = "+" + "  +".join(f"{v:.1f}/s {k[:3]}" for k, v in produces.items())
+                surface.blit(sf.render(prod_str, True, prod_color), (pr.x + 12, ry + 32))
 
-            # Right-side button
-            btn_x = pr.x + pr.w - 86
+            # Right-side button / status
+            btn_x = pr.x + 6 + content_w - 78
             if p.colonized:
                 if not is_built and not in_build_queue:
                     can, _ = p.can_build(bname)
-                    btn = Button((btn_x, ry + 8, 76, 20), "Construire",
+                    btn = Button((btn_x, ry + 6, 74, 18), "Construire",
                                  enabled=can, tooltip=f"build:{bname}")
                     btn.handle_mouse(mouse_pos); btn.draw(surface)
                     self._buttons.append(btn)
                 elif in_build_queue:
-                    surface.blit(sf.render("En constr.", True, ORANGE), (btn_x, ry + 12))
-                elif is_built and b.level < 10 and not in_upgrade_queue:
+                    surface.blit(sf.render("En constr.", True, ORANGE), (btn_x + 2, ry + 10))
+                elif is_built and b.level < LEVEL_MAX and not in_upgrade_queue:
                     can, _ = p.can_upgrade(bname)
-                    btn = Button((btn_x, ry + 8, 76, 20), f"Upg. Niv.{b.level+1}",
+                    btn = Button((btn_x, ry + 6, 74, 18), f"Upg.Niv.{b.level+1}",
                                  enabled=can, tooltip=f"upgrade:{bname}")
                     btn.handle_mouse(mouse_pos); btn.draw(surface)
                     self._buttons.append(btn)
                 elif in_upgrade_queue:
-                    surface.blit(sf.render(f"Upg. en cours", True, ORANGE), (btn_x, ry + 12))
-                elif is_built and b.level >= 10:
-                    surface.blit(sf.render("MAX", True, GOLD), (btn_x + 20, ry + 12))
+                    surface.blit(sf.render("Upg. cours", True, ORANGE), (btn_x + 2, ry + 10))
+                elif is_built and b.level >= LEVEL_MAX:
+                    surface.blit(sf.render("MAX", True, GOLD), (btn_x + 24, ry + 10))
 
             ry += row_h
+
+        # ── Scrollbar ────────────────────────────────────────────
+        if total_h > visible_h:
+            sb_x = pr.x + pr.w - 6 - SB_W
+            sb_track_h = max(0, visible_h)
+            pygame.draw.rect(surface, (20, 25, 45),
+                             (sb_x, y, SB_W, sb_track_h), border_radius=3)
+            handle_h = max(18, int(sb_track_h * visible_h / max(total_h, 1)))
+            handle_y = y + int((sb_track_h - handle_h) * scroll_offset / max(total_h - visible_h, 1))
+            pygame.draw.rect(surface, (70, 110, 180),
+                             (sb_x, handle_y, SB_W, handle_h), border_radius=3)
+        elif total_h > 0:
+            # All items visible — subtle full bar
+            sb_x = pr.x + pr.w - 6 - SB_W
+            pygame.draw.rect(surface, (25, 32, 55),
+                             (sb_x, y, SB_W, max(0, visible_h)), border_radius=3)
 
     def _draw_ships_tab(self, surface, pr, y, p):
         f = _font(12)
