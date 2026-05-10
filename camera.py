@@ -57,9 +57,9 @@ class Camera:
 
     def update(self, keys):
         spd = SCROLL_SPEED / self.zoom
-        if keys[pygame.K_LEFT]  or keys[pygame.K_a]: self.x -= spd
+        if keys[pygame.K_LEFT]  or keys[pygame.K_q]: self.x -= spd
         if keys[pygame.K_RIGHT] or keys[pygame.K_d]: self.x += spd
-        if keys[pygame.K_UP]    or keys[pygame.K_w]: self.y -= spd
+        if keys[pygame.K_UP]    or keys[pygame.K_z]: self.y -= spd
         if keys[pygame.K_DOWN]  or keys[pygame.K_s]: self.y += spd
         self._clamp()
 

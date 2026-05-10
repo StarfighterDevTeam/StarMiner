@@ -143,7 +143,25 @@ class Ship:
         }.get(self.state, WHITE)
         pygame.draw.circle(surface, dot_color, (sx + draw_size // 2, sy - draw_size // 2), max(3, int(4 * camera.zoom)))
 
-        # Travel line
-        if self.target_planet and self.state in (MISSION_TRAVEL, MISSION_MINE, MISSION_RETURN):
+        # Travel line toward actual destination
+        if self.state in (MISSION_TRAVEL, MISSION_MINE) and self.target_planet:
             tx, ty = camera.world_to_screen(self.target_planet.x, self.target_planet.y)
             pygame.draw.line(surface, (*CYAN, 60), (sx, sy), (tx, ty), 1)
+        elif self.state == MISSION_RETURN:
+            tx, ty = camera.world_to_screen(self.home.x, self.home.y)
+            pygame.draw.line(surface, (*CYAN, 60), (sx, sy), (tx, ty), 1)
+
+        # ETA label while moving toward a destination
+        if self.state in (MISSION_TRAVEL, MISSION_RETURN):
+            dest_x = self.target_planet.x if self.state == MISSION_TRAVEL else self.home.x
+            dest_y = self.target_planet.y if self.state == MISSION_TRAVEL else self.home.y
+            dist = math.hypot(dest_x - self.x, dest_y - self.y)
+            eta = dist / self.speed
+            label = f"{int(eta//60)}m {int(eta%60)}s" if eta >= 60 else f"{eta:.0f}s"
+            try:
+                font = pygame.font.SysFont("consolas", max(9, int(10 * camera.zoom)))
+            except Exception:
+                font = pygame.font.Font(None, max(11, int(12 * camera.zoom)))
+            txt = font.render(label, True, CYAN)
+            surface.blit(txt, (sx - txt.get_width() // 2,
+                               sy - draw_size // 2 - txt.get_height() - 2))
