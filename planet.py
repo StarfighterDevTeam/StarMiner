@@ -147,6 +147,14 @@ class Planet:
         self.colonized = True
         self.explored = True
 
+    def debug_complete_all(self, all_ships):
+        while self.build_queue:
+            entry = self.build_queue.pop(0)
+            self.buildings.append(Building(entry["name"]))
+        while self.ship_queue:
+            entry = self.ship_queue.pop(0)
+            self._spawn_ship(entry["ship_type"], all_ships)
+
     # ── draw ─────────────────────────────────────────────────────
     def draw(self, surface, camera):
         sx, sy = camera.world_to_screen(self.x, self.y)

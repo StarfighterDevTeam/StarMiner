@@ -45,6 +45,11 @@ class Game:
                 else:
                     self._running = False
                 return
+            if event.type == pygame.KEYDOWN and event.key == pygame.K_F5:
+                if self.ui.visible and self.ui.planet:
+                    self.ui.planet.debug_complete_all(self.ships)
+                    self.ui.show_message("[DEBUG] Toutes les productions terminées")
+                continue
 
             # Let UI handle first
             if self.ui.handle_event(event, self.planets, self.ships):
@@ -57,6 +62,8 @@ class Game:
                         if p.is_clicked(mx, my, self.camera) and p is not self.ui.planet:
                             self.ui.dispatch_mission(p)
                             break
+                else:
+                    self.camera.handle_event(event)  # zoom/pan remain available
                 continue
 
             # Camera
