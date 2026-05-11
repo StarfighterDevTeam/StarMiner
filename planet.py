@@ -68,6 +68,11 @@ class Planet:
 
     # ── properties ───────────────────────────────────────────────
     @property
+    def storage_cap(self):
+        silo = self.get_building("Silo")
+        return STORAGE_BASE + (silo.level * STORAGE_PER_SILO_LEVEL if silo else 0)
+
+    @property
     def has_shipyard(self):
         return any(b.name == "Shipyard" for b in self.buildings)
 
@@ -90,6 +95,12 @@ class Planet:
         # Buildings produce resources
         for b in self.buildings:
             b.update(dt, self.resources)
+
+        # Cap resources to storage limit
+        cap = self.storage_cap
+        for res in RESOURCE_NAMES:
+            if self.resources[res] > cap:
+                self.resources[res] = cap
 
         # Build / upgrade queue
         if self.build_queue:

@@ -172,15 +172,17 @@ class Game:
             self.screen.blit(spd_txt, (8, 36))
 
         home = self.planets[0]
+        cap = home.storage_cap
         x = 8
         y = SCREEN_H - 20
         for res in RESOURCE_NAMES:
             val = home.resources.get(res, 0)
             color = RESOURCE_COLORS.get(res, WHITE)
-            t = font.render(f"{res[:3].upper()}:{int(val)}", True, color)
+            near_cap = val >= cap * 0.95
+            t = font.render(f"{res[:3].upper()}:{int(val)}/{int(cap)}", True, RED if near_cap else color)
             self.screen.blit(t, (x, y))
             x += t.get_width() + 12
 
         hint = "WASD/Arrows:scroll  |  Scroll:zoom  |  RMB drag:pan  |  Click:select  |  ESC:fermer"
         ht = font.render(hint, True, (60, 70, 90))
-        self.screen.blit(ht, (SCREEN_W // 2 - ht.get_width() // 2, SCREEN_H - 18))
+        self.screen.blit(ht, (SCREEN_W - ht.get_width() - 8, SCREEN_H - 20))

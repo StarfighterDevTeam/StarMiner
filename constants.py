@@ -61,6 +61,10 @@ RESOURCE_MAX_CHAR = 10
 QUEUE_MAX  = 10         # max items per production queue
 LEVEL_MAX  = 10         # max building level
 
+# Storage
+STORAGE_BASE           = 5000  # base cap per resource on any colonized planet
+STORAGE_PER_SILO_LEVEL = 2500  # cap added per Silo level
+
 # Planet types → which resources they carry
 PLANET_RESOURCES = {
     "rocky":     ["iron", "gold", "silver"],
@@ -76,6 +80,7 @@ BUILDING_DEFS = {
     "Oil Rig":         {"cost": {"iron": 100},              "time": 25, "produces": {"oil": 1},         "requires": [], "category": "mine"},
     "Deuterium Plant": {"cost": {"iron": 120, "silver": 40},"time": 30, "produces": {"deuterium": 0.8},"requires": [], "category": "mine"},
     "Shipyard":        {"cost": {"iron": 200, "gold": 50},  "time": 45, "produces": {},                "requires": [], "category": "factory"},
+    "Silo":            {"cost": {"iron": 120, "gold": 30},  "time": 25, "produces": {},                "requires": [], "category": "storage"},
 }
 
 BUILDING_PLANET_TYPES = {
@@ -85,6 +90,7 @@ BUILDING_PLANET_TYPES = {
     "Oil Rig":         ["gas"],
     "Deuterium Plant": ["gas"],
     "Shipyard":        ["rocky", "gas", "asteroid"],
+    "Silo":            ["rocky", "gas", "asteroid"],
 }
 
 # Ships — shipyard_level = niveau minimal du chantier naval requis

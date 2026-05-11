@@ -80,9 +80,9 @@ class PlanetUI:
 
     @property
     def panel_rect(self):
-        x = SCREEN_W - self.PANEL_W - 10
-        y = SCREEN_H // 2 - self.PANEL_H // 2
-        return pygame.Rect(x, y, self.PANEL_W, self.PANEL_H)
+        top = 50
+        return pygame.Rect(int(SCREEN_W) - self.PANEL_W - 10, top,
+                           self.PANEL_W, int(SCREEN_H) - top - 10)
 
     def show_message(self, msg):
         self._message = msg
@@ -249,7 +249,8 @@ class PlanetUI:
         pygame.draw.line(surface, UI_BORDER, (pr.x + 8, y), (pr.x + pr.w - 8, y))
         y += 6
         res_font = _font(11)
-        col_w = (pr.w - 20) // 4
+        col_w = (pr.w - 20) // 3
+        cap = p.storage_cap if p.colonized else None
         res_items = [(r, v) for r, v in p.resources.items() if v > 0 or r in p.available_resources]
         for i, (res, val) in enumerate(res_items):
             col = i % 3
@@ -258,10 +259,12 @@ class PlanetUI:
             ry = y + row * 16
             color = RESOURCE_COLORS.get(res, WHITE)
             if p.colonized:
-                label = f"{res[:RESOURCE_MAX_CHAR].upper()}: {int(val)}"
+                near_cap = cap and val >= cap * 0.95
+                label = f"{res[:3].upper()}:{int(val)}/{int(cap)}"
+                t = res_font.render(label, True, RED if near_cap else color)
             else:
                 label = res[:RESOURCE_MAX_CHAR].upper()
-            t = res_font.render(label, True, color)
+                t = res_font.render(label, True, color)
             surface.blit(t, (rx, ry))
         rows = (len(res_items) + 2) // 3
         y += max(rows * 16 + 4, 20)
@@ -403,12 +406,22 @@ class PlanetUI:
             ct = sf.render(label, True, GRAY)
             surface.blit(ct, (pr.x + 12, ry + 20))
 
-            # Production line
+            # Production / storage line
             produces = b.produces if is_built else defn.get("produces", {})
             prod_color = GREEN if is_built else (60, 130, 70)
             if produces:
                 prod_str = "+" + "  +".join(f"{v:.1f}/s {k[:3]}" for k, v in produces.items())
                 surface.blit(sf.render(prod_str, True, prod_color), (pr.x + 12, ry + 32))
+            elif defn.get("category") == "storage":
+                lvl = b.level if is_built else 0
+                bonus = (lvl or 1) * STORAGE_PER_SILO_LEVEL
+                if is_built:
+                    cap_total = STORAGE_BASE + lvl * STORAGE_PER_SILO_LEVEL
+                    storage_str = f"Stockage: {cap_total}/res  (+{bonus})"
+                else:
+                    storage_str = f"+{STORAGE_PER_SILO_LEVEL}/res par niveau"
+                surface.blit(sf.render(storage_str, True, CYAN if is_built else (40, 100, 130)),
+                             (pr.x + 12, ry + 32))
 
             # Right-side button / status
             btn_x = pr.x + 6 + content_w - 78
@@ -687,9 +700,39 @@ class ShipUI:
         self.visible = False
         self.ship = None
 
+    def _compute_panel_h(self, s):
+        from ship import MISSION_TRAVEL, MISSION_DISCOVER, MISSION_MINE, MISSION_RETURN
+        h = 10 + 20 + 16 + 8 + 18 + 15 + 15  # pad + title + home + sep + status + depart + dest
+
+        if s.state in (MISSION_TRAVEL, MISSION_RETURN):
+            h += 15 + 12  # ETA + progress bar
+        if s.state == MISSION_DISCOVER:
+            h += 15 + 12  # discover timer + bar
+        if s.state == MISSION_MINE:
+            h += 15       # mine timer
+        if s.state in (MISSION_TRAVEL, MISSION_DISCOVER, MISSION_MINE):
+            h += 26       # cancel button
+
+        if s.capacity > 0:
+            h += 8   # separator before cargo
+            h += 14  # cargo total line
+            cargo_total = sum(s.cargo.values())
+            if cargo_total > 0:
+                n = sum(1 for v in s.cargo.values() if v > 0)
+                h += ((n - 1) // 3 + 1) * 13
+            else:
+                h += 13  # "(vide)"
+            h += 10  # separator after cargo
+
+        h += 8   # separator before stats
+        h += 13  # stats line
+        h += 8   # bottom pad
+        return h
+
     @property
     def panel_rect(self):
-        return pygame.Rect(10, SCREEN_H - self.PANEL_H - 36, self.PANEL_W, self.PANEL_H)
+        h = getattr(self, '_panel_h', self.PANEL_H)
+        return pygame.Rect(10, int(SCREEN_H) - h - 36, self.PANEL_W, h)
 
     def handle_event(self, event):
         if not self.visible:
@@ -710,6 +753,7 @@ class ShipUI:
         if not self.visible or not self.ship:
             return
         s = self.ship
+        self._panel_h = self._compute_panel_h(s)
         pr = self.panel_rect
         self._buttons.clear()
 
@@ -855,35 +899,36 @@ class ShipUI:
             self._buttons.append(cancel_btn)
             y += 26
 
-        pygame.draw.line(surface, (40, 80, 120), (pr.x + 8, y), (pr.x + pr.w - 8, y))
-        y += 8
-
         # ── Cargo ────────────────────────────────────────────────
-        cargo_total = sum(s.cargo.values())
-        cf = _font(11)
-        cap_color = ORANGE if cargo_total >= s.capacity > 0 else UI_TEXT
-        cap_t = cf.render(f"Cargaison   :  {int(cargo_total)} / {s.capacity}", True, cap_color)
-        surface.blit(cap_t, (pr.x + 12, y))
-        y += 14
+        if s.capacity > 0:
+            pygame.draw.line(surface, (40, 80, 120), (pr.x + 8, y), (pr.x + pr.w - 8, y))
+            y += 8
+            cargo_total = sum(s.cargo.values())
+            cf = _font(11)
+            cap_color = ORANGE if cargo_total >= s.capacity else UI_TEXT
+            cap_t = cf.render(f"Cargaison   :  {int(cargo_total)} / {s.capacity}", True, cap_color)
+            surface.blit(cap_t, (pr.x + 12, y))
+            y += 14
 
-        if cargo_total > 0:
-            items = [(r, v) for r, v in s.cargo.items() if v > 0]
-            col_w = (pr.w - 24) // min(len(items), 3)
-            for i, (res, amt) in enumerate(items):
-                color = RESOURCE_COLORS.get(res, WHITE)
-                rt = _font(10).render(f"{res[:3].upper()}: {int(amt)}", True, color)
-                surface.blit(rt, (pr.x + 14 + (i % 3) * col_w, y + (i // 3) * 13))
-            y += ((len(items) - 1) // 3 + 1) * 13
-        else:
-            et = cf.render("  (vide)", True, (55, 65, 85))
-            surface.blit(et, (pr.x + 12, y))
-            y += 13
+            if cargo_total > 0:
+                items = [(r, v) for r, v in s.cargo.items() if v > 0]
+                col_w = (pr.w - 24) // min(len(items), 3)
+                for i, (res, amt) in enumerate(items):
+                    color = RESOURCE_COLORS.get(res, WHITE)
+                    rt = _font(10).render(f"{res[:3].upper()}: {int(amt)}", True, color)
+                    surface.blit(rt, (pr.x + 14 + (i % 3) * col_w, y + (i // 3) * 13))
+                y += ((len(items) - 1) // 3 + 1) * 13
+            else:
+                et = cf.render("  (vide)", True, (55, 65, 85))
+                surface.blit(et, (pr.x + 12, y))
+                y += 13
 
-        pygame.draw.line(surface, (40, 80, 120), (pr.x + 8, y + 2), (pr.x + pr.w - 8, y + 2))
-        y += 10
+            pygame.draw.line(surface, (40, 80, 120), (pr.x + 8, y + 2), (pr.x + pr.w - 8, y + 2))
+            y += 10
 
         # ── Stats ────────────────────────────────────────────────
-        speed_t = _font(10).render(
-            f"Vitesse : {s.speed} px/s   Capacité : {s.capacity}",
-            True, (80, 95, 120))
+        pygame.draw.line(surface, (40, 80, 120), (pr.x + 8, y), (pr.x + pr.w - 8, y))
+        y += 8
+        stats_str = f"Vitesse : {s.speed} px/s"
+        speed_t = _font(10).render(stats_str, True, (80, 95, 120))
         surface.blit(speed_t, (pr.x + 12, y))
