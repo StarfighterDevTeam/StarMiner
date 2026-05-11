@@ -97,7 +97,7 @@ BUILDING_PLANET_TYPES = {
 SHIP_DEFS = {
     "Probe":      {"cost": {"iron": 50,  "gold": 10},                        "time": 15, "speed": 180, "capacity": 0,    "missions": ["explore"],   "shipyard_level": 1},
     "Miner":      {"cost": {"iron": 120, "gold": 20,  "oil": 10},            "time": 30, "speed": 100, "capacity": 200,  "missions": ["mine"],      "shipyard_level": 1},
-    "Colonizer":  {"cost": {"iron": 300, "gold": 80,  "silver": 50},         "time": 60, "speed": 80,  "capacity": 0,    "missions": ["colonize"],  "shipyard_level": 3},
+    "Colonizer":  {"cost": {"iron": 300, "gold": 80,  "silver": 50},         "time": 60, "speed": 80,  "capacity": 0,    "missions": ["colonize"],  "shipyard_level": 1},
     "Scout":      {"cost": {"iron": 80,  "gold": 40},                        "time": 20, "speed": 300, "capacity": 0,    "missions": ["explore"],   "shipyard_level": 3},
     "Freighter":  {"cost": {"iron": 250, "gold": 60,  "oil": 30},            "time": 60, "speed": 60,  "capacity": 800,  "missions": ["mine"],      "shipyard_level": 5},
     "Constructor":{"cost": {"iron": 400, "gold": 100, "silver": 80},         "time": 90, "speed": 70,  "capacity": 0,    "missions": ["highway"],   "shipyard_level": 1},

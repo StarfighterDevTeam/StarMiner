@@ -251,23 +251,23 @@ class Planet:
         img = _load_img(img_path, draw_size)
         surface.blit(img, (sx - half, sy - half))
 
-        # Name label
-        if camera.zoom >= 0.5:
+        # Name label (fixed size, unaffected by zoom)
+        if camera.zoom >= 0.3:
             try:
-                font = pygame.font.SysFont("consolas", max(10, int(12 * camera.zoom)))
+                font = pygame.font.SysFont("consolas", 11)
             except Exception:
-                font = pygame.font.Font(None, max(12, int(15 * camera.zoom)))
+                font = pygame.font.Font(None, 13)
             label = self.name if self.explored else "???"
-            txt = font.render(label, True, WHITE)
+            if self.colonized:
+                name_color = GREEN
+            else:
+                name_color = WHITE
+            txt = font.render(label, True, name_color)
             surface.blit(txt, (sx - txt.get_width() // 2, sy + half + 4))
 
         # Home marker
         if self.is_home and camera.zoom >= 0.4:
             pygame.draw.circle(surface, GOLD, (sx, sy - half - 6), max(3, int(4 * camera.zoom)))
-
-        # Colonized ring
-        if self.colonized and not self.is_home:
-            pygame.draw.circle(surface, GREEN, (sx, sy), half + 4, 2)
 
     def draw_hover(self, surface, camera):
         sx, sy = camera.world_to_screen(self.x, self.y)

@@ -19,6 +19,7 @@ def _mission_eta(ship):
     if ship.state == MISSION_IDLE or ship.target_planet is None:
         return None
     mtype = getattr(ship, "_mission_type", None)
+    one_way_mission = mtype in ("explore", "colonize", "highway")
     if mtype == "mine":
         mdur = getattr(ship, "_mine_duration", 8.0)
     elif mtype == "explore":
@@ -28,12 +29,12 @@ def _mission_eta(ship):
     t = ship.target_planet
     spd = max(getattr(ship, "_effective_speed", ship.speed), 1)
     d_there  = math.hypot(ship.home.x - t.x, ship.home.y - t.y) / spd
-    d_back   = d_there  # symmetric
+    d_back   = 0.0 if one_way_mission else d_there
     total    = d_there + mdur + d_back
     if ship.state == MISSION_TRAVEL:
         rem = math.hypot(ship.x - t.x, ship.y - t.y) / spd + mdur + d_back
     elif ship.state == MISSION_DISCOVER:
-        rem = getattr(ship, "_discover_timer", 0.0) + d_back
+        rem = getattr(ship, "_discover_timer", 0.0)
     elif ship.state == MISSION_MINE:
         rem = getattr(ship, "_mine_timer", 0.0) + d_back
     elif ship.state == MISSION_RETURN:
@@ -246,9 +247,6 @@ class PlanetUI:
             if target_planet is ship.home:
                 self.show_message("Même planète — choisissez une autre")
                 return
-            if not target_planet.colonized:
-                self.show_message(f"{target_planet.name} n'est pas colonisée")
-                return
             if not target_planet.explored:
                 self.show_message(f"Explorez d'abord {target_planet.name}")
                 return
@@ -443,7 +441,7 @@ class PlanetUI:
         else:
             mission_dur = 0.0
 
-        one_way = mtype in ("colonize", "highway")
+        one_way = mtype in ("explore", "colonize", "highway")
         total = travel_to + mission_dur + (0 if one_way else travel_back)
 
         lines = []
@@ -453,8 +451,6 @@ class PlanetUI:
             error = ("Même planète", RED)
         elif mtype == "explore" and planet.explored:
             error = (f"{planet.name} déjà explorée", ORANGE)
-        elif mtype == "mine" and not planet.colonized:
-            error = ("Planète non colonisée", RED)
         elif mtype == "mine" and not planet.explored:
             error = ("Planète non explorée", RED)
         elif mtype == "highway" and not planet.colonized:

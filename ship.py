@@ -133,7 +133,10 @@ class Ship:
             self._discover_timer -= dt
             if self._discover_timer <= 0:
                 self.target_planet.explored = True
-                self.state = MISSION_RETURN
+                if self in self.home.ships:
+                    self.home.ships.remove(self)
+                self._destroyed = True
+                return
 
         elif self.state == MISSION_MINE:
             self._mine_timer -= dt
