@@ -3,7 +3,7 @@ from constants import *
 from camera import Camera
 from space_map import SpaceMap
 from planet import generate_planets
-from ui import PlanetUI, ShipUI
+from ui import PlanetUI, ShipUI, ColonyBar
 
 class Game:
     def __init__(self, screen):
@@ -16,6 +16,7 @@ class Game:
         self.highways = set()
         self.ui = PlanetUI()
         self.ship_ui = ShipUI()
+        self.colony_bar = ColonyBar()
         self._hovered_planet = None
         self._hovered_ship = None
         self._time_scale = 1.0
@@ -63,6 +64,18 @@ class Game:
                 if self.ui.visible and self.ui.planet:
                     self.ui.planet.debug_complete_all(self.ships)
                     self.ui.show_message("[DEBUG] Toutes les productions terminées")
+                continue
+
+            # Colony bar (tab toggle always works; rows blocked during mission mode)
+            cb_action, cb_planet = self.colony_bar.handle_event(
+                event, self.planets, mission_mode_active=bool(self.ui._mission_mode))
+            if cb_action is not None:
+                if cb_action in ('select', 'center') and cb_planet:
+                    self.ui.open(cb_planet)
+                    self.ship_ui.close()
+                    if cb_action == 'center':
+                        self.camera.x = cb_planet.x - SCREEN_W / (2 * self.camera.zoom)
+                        self.camera.y = cb_planet.y - SCREEN_H / (2 * self.camera.zoom)
                 continue
 
             # Ship UI events (intercepts clicks on its panel)
@@ -126,17 +139,18 @@ class Game:
         mx, my = pygame.mouse.get_pos()
         in_planet_panel = self.ui.visible and self.ui.panel_rect.collidepoint(mx, my)
         in_ship_panel   = self.ship_ui.visible and self.ship_ui.panel_rect.collidepoint(mx, my)
+        in_colony_bar   = self.colony_bar.contains_point((mx, my), self.planets)
 
         # Ship hover (priority)
         self._hovered_ship = None
-        if not in_planet_panel and not in_ship_panel:
+        if not in_planet_panel and not in_ship_panel and not in_colony_bar:
             self._hovered_ship = next(
                 (s for s in self.ships
                  if not s.is_docked and s.is_clicked(mx, my, self.camera)), None)
 
         # Planet hover (only if no ship hovered)
         self._hovered_planet = None
-        if not self._hovered_ship and not in_planet_panel and not in_ship_panel:
+        if not self._hovered_ship and not in_planet_panel and not in_ship_panel and not in_colony_bar:
             self._hovered_planet = next(
                 (p for p in self.planets if p.is_clicked(mx, my, self.camera)), None)
 
@@ -146,6 +160,9 @@ class Game:
         self._draw_highways()
         for p in self.planets:
             p.draw(self.screen, self.camera)
+        selected_planet = self.ui.planet if self.ui.visible else None
+        if selected_planet and selected_planet is not self._hovered_planet:
+            selected_planet.draw_selected(self.screen, self.camera)
         if self._hovered_planet:
             self._hovered_planet.draw_hover(self.screen, self.camera)
         for s in self.ships:
@@ -156,6 +173,9 @@ class Game:
         if self._hovered_planet:
             self.ui.draw_mission_hover(self.screen, self._hovered_planet, self.camera, self.highways)
         self.ship_ui.draw(self.screen)
+        self.colony_bar.draw(self.screen, self.planets,
+                             selected_planet=self.ui.planet if self.ui.visible else None,
+                             mission_mode=bool(self.ui._mission_mode))
         self._draw_hud()
         pygame.display.flip()
 

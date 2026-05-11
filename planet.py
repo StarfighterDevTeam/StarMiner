@@ -253,7 +253,7 @@ class Planet:
         surface.blit(img, (sx - half, sy - half))
 
         # Name label (fixed size, unaffected by zoom)
-        if camera.zoom >= 0.3:
+        if camera.zoom >= ZOOM_MIN:
             try:
                 font = pygame.font.SysFont("consolas", 11)
             except Exception:
@@ -269,6 +269,11 @@ class Planet:
         # Home marker
         if self.is_home and camera.zoom >= 0.4:
             pygame.draw.circle(surface, GOLD, (sx, sy - half - 6), max(3, int(4 * camera.zoom)))
+
+    def draw_selected(self, surface, camera):
+        sx, sy = camera.world_to_screen(self.x, self.y)
+        half = max(10, int(self.size * camera.zoom)) // 2
+        pygame.draw.circle(surface, GREEN, (sx, sy), half + 8, 2)
 
     def draw_hover(self, surface, camera):
         sx, sy = camera.world_to_screen(self.x, self.y)
