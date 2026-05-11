@@ -24,6 +24,9 @@ SHIP_IMG_PATHS = {
 }
 SHIP_DRAW_SIZE = 28
 
+MINE_RESOURCES = frozenset({"iron", "silver", "gold"})
+PUMP_RESOURCES = frozenset({"oil", "deuterium"})
+
 MISSION_IDLE     = "idle"
 MISSION_TRAVEL   = "travel"
 MISSION_EXPLORE  = "exploring"
@@ -85,7 +88,7 @@ class Ship:
     # ── fuel helpers ─────────────────────────────────────────────
     def fuel_cost(self, mtype, target):
         dist = math.hypot(self.home.x - target.x, self.home.y - target.y)
-        return dist * self.fuel_rate * (2.0 if mtype == "mine" else 1.0)
+        return dist * self.fuel_rate * (2.0 if mtype in ("mine", "pump") else 1.0)
 
     def has_fuel_for(self, mtype, target):
         return self.home.resources.get(self.fuel_type, 0) >= self.fuel_cost(mtype, target)
@@ -127,6 +130,17 @@ class Ship:
         self.target_planet = target
         self.state = MISSION_TRAVEL
         self._mission_type = "mine"
+        return True
+
+    def send_pump(self, target):
+        if self.state != MISSION_IDLE: return False
+        if self.type != "Tanker": return False
+        fuel = self.fuel_cost("pump", target)
+        if self.home.resources.get(self.fuel_type, 0) < fuel: return False
+        self._load_fuel(fuel)
+        self.target_planet = target
+        self.state = MISSION_TRAVEL
+        self._mission_type = "pump"
         return True
 
     def send_colonize(self, target):
@@ -223,7 +237,7 @@ class Ship:
                 if self._mission_type == "explore":
                     self.state = MISSION_DISCOVER
                     self._discover_timer = self._discover_duration
-                elif self._mission_type == "mine":
+                elif self._mission_type in ("mine", "pump"):
                     self.state = MISSION_MINE
                     self._mine_timer = self._mine_duration
                 elif self._mission_type == "colonize":
@@ -251,8 +265,10 @@ class Ship:
 
         elif self.state == MISSION_MINE:
             self._mine_timer -= dt
-            # Load resources from target
+            extractable = PUMP_RESOURCES if self._mission_type == "pump" else MINE_RESOURCES
             for res in self.target_planet.available_resources:
+                if res not in extractable:
+                    continue
                 space = self.capacity - sum(self.cargo.values())
                 amount = min(10 * dt, space)
                 self.cargo[res] = self.cargo.get(res, 0) + amount
@@ -272,10 +288,14 @@ class Ship:
                     self.home.resources[res] = self.home.resources.get(res, 0) + amt
                 self.cargo = {r: 0.0 for r in RESOURCE_NAMES}
                 prev_target = self.target_planet
+                prev_mtype  = getattr(self, "_mission_type", None)
                 self.state = MISSION_IDLE
                 self.target_planet = None
-                if self.repeat and getattr(self, "_mission_type", None) == "mine" and prev_target:
-                    self.send_mine(prev_target)
+                if self.repeat and prev_mtype in ("mine", "pump") and prev_target:
+                    if prev_mtype == "pump":
+                        self.send_pump(prev_target)
+                    else:
+                        self.send_mine(prev_target)
 
         elif self.state == MISSION_PATROL:
             # Enter combat if enemy spotted

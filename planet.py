@@ -36,7 +36,8 @@ PLANET_SIZES = {"rocky": 80, "gas": 96, "asteroid": 72}
 class Planet:
     _id_counter = 0
 
-    def __init__(self, x, y, planet_type, name, is_home=False, habitable=False):
+    def __init__(self, x, y, planet_type, name, is_home=False, habitable=False,
+                 available_resources=None):
         Planet._id_counter += 1
         self.id = Planet._id_counter
         self.x = x
@@ -54,8 +55,9 @@ class Planet:
         if is_home:
             self.resources.update(START_RESOURCES)
 
-        # Available resource types on this planet
-        self.available_resources = PLANET_RESOURCES[planet_type]
+        # Available resource types on this planet (procedurally assigned by generate_planets)
+        self.available_resources = available_resources if available_resources is not None \
+                                   else PLANET_RESOURCES[planet_type]
 
         # Buildings and construction queue
         self.buildings: list[Building] = []
@@ -69,9 +71,21 @@ class Planet:
 
     # ── properties ───────────────────────────────────────────────
     @property
-    def storage_cap(self):
+    def solid_storage_cap(self):
         silo = self.get_building("Silo")
         return STORAGE_BASE + (silo.level * STORAGE_PER_SILO_LEVEL if silo else 0)
+
+    @property
+    def fluid_storage_cap(self):
+        tank = self.get_building("Fuel Tank")
+        return FLUID_BASE + (tank.level * STORAGE_PER_TANK_LEVEL if tank else 0)
+
+    def storage_cap_for(self, res):
+        return self.fluid_storage_cap if res in FLUID_RESOURCES else self.solid_storage_cap
+
+    @property
+    def storage_cap(self):
+        return self.solid_storage_cap
 
     @property
     def has_shipyard(self):
@@ -97,9 +111,9 @@ class Planet:
         for b in self.buildings:
             b.update(dt, self.resources)
 
-        # Cap resources to storage limit
-        cap = self.storage_cap
+        # Cap resources to storage limit (solids and fluids have separate caps)
         for res in RESOURCE_NAMES:
+            cap = self.storage_cap_for(res)
             if self.resources[res] > cap:
                 self.resources[res] = cap
 
@@ -307,10 +321,14 @@ def generate_planets(num=NUM_PLANETS):
                 return n
         return f"P-{len(planets)+1}"
 
-    # First planet is home (center-ish)
+    _GAS_RESOURCE_OPTS = [["oil"], ["deuterium"], ["oil", "deuterium"]]
+    _SOLID_THIRD       = ["silver", "gold", "deuterium"]
+
+    # First planet is home (center-ish) — always iron + oil + silver
     home_x = WORLD_W // 2 + rng.randint(-200, 200)
     home_y = WORLD_H // 2 + rng.randint(-200, 200)
-    planets.append(Planet(home_x, home_y, "rocky", "Terra Nova", is_home=True))
+    planets.append(Planet(home_x, home_y, "rocky", "Terra Nova", is_home=True,
+                          available_resources=["iron", "oil", "silver"]))
 
     attempts = 0
     while len(planets) < num and attempts < 5000:
@@ -329,6 +347,11 @@ def generate_planets(num=NUM_PLANETS):
             continue
         ptype = rng.choices(types, type_weights)[0]
         habitable = rng.random() < HABITABLE_RATIO
-        planets.append(Planet(px, py, ptype, rand_name(), habitable=habitable))
+        if ptype == "gas":
+            avail = rng.choice(_GAS_RESOURCE_OPTS)
+        else:
+            avail = ["iron", "oil", rng.choice(_SOLID_THIRD)]
+        planets.append(Planet(px, py, ptype, rand_name(), habitable=habitable,
+                              available_resources=avail))
 
     return planets

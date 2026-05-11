@@ -164,6 +164,8 @@ class PlanetUI:
                 "max_scroll": max_scroll,
                 "track_h": track_h,
                 "handle_h": handle_h,
+                "sb_x": sb_x,
+                "track_y": track_y,
             }
         else:
             pygame.draw.rect(surface, (25, 32, 55), (sb_x, track_y, 7, track_h), border_radius=3)
@@ -214,6 +216,17 @@ class PlanetUI:
                     "handle_h":      sb_info["handle_h"],
                 }
                 return True
+            if sb_info:
+                track_rect = pygame.Rect(sb_info["sb_x"], sb_info["track_y"],
+                                         7, sb_info["track_h"])
+                if track_rect.collidepoint(pos):
+                    scroll_range = sb_info["track_h"] - sb_info["handle_h"]
+                    if scroll_range > 0:
+                        rel = my - sb_info["track_y"] - sb_info["handle_h"] / 2
+                        frac = max(0.0, min(1.0, rel / scroll_range))
+                        new_val = round(frac * sb_info["max_scroll"])
+                        setattr(self, sb_info["scroll_attr"], new_val)
+                    return True
 
         # Tab buttons
         for tb in self._tab_btns:
@@ -295,7 +308,7 @@ class PlanetUI:
                 self._patrol_request = ship
                 self.show_message("Cliquez sur la carte pour définir la destination")
 
-        elif tag.startswith("explore:") or tag.startswith("mine:") or tag.startswith("colonize:") or tag.startswith("highway:"):
+        elif tag.startswith(("explore:", "mine:", "pump:", "colonize:", "highway:")):
             mtype, sid = tag.split(":")
             ship = next((s for s in p.ships if s.id == int(sid)), None)
             if ship:
@@ -304,7 +317,8 @@ class PlanetUI:
                     self.show_message("Mission annulée")
                 else:
                     self._mission_mode = (mtype, ship)
-                    verb = {"explore": "explorer", "mine": "miner", "colonize": "coloniser", "highway": "relier en autoroute"}.get(mtype, mtype)
+                    verb = {"explore": "explorer", "mine": "miner", "pump": "pomper",
+                            "colonize": "coloniser", "highway": "relier en autoroute"}.get(mtype, mtype)
                     self.show_message(f"Cliquez sur une planète à {verb}")
 
     def dispatch_mission(self, target_planet, highways=None):
@@ -320,12 +334,22 @@ class PlanetUI:
             if target_planet.explored:
                 self.show_message(f"{target_planet.name} est déjà explorée")
                 return
-        if mtype == "mine":
+        if mtype in ("mine", "pump"):
             if target_planet is ship.home:
                 self.show_message("Même planète — choisissez une autre")
                 return
             if not target_planet.explored:
                 self.show_message(f"Explorez d'abord {target_planet.name}")
+                return
+        if mtype == "mine":
+            from ship import MINE_RESOURCES
+            if not any(r in MINE_RESOURCES for r in target_planet.available_resources):
+                self.show_message(f"{target_planet.name} n'a pas de ressources solides")
+                return
+        if mtype == "pump":
+            from ship import PUMP_RESOURCES
+            if not any(r in PUMP_RESOURCES for r in target_planet.available_resources):
+                self.show_message(f"{target_planet.name} n'a pas de ressources fluides")
                 return
         if mtype == "colonize":
             if not target_planet.explored:
@@ -353,6 +377,8 @@ class PlanetUI:
             ok = ship.send_explore(target_planet)
         elif mtype == "mine":
             ok = ship.send_mine(target_planet)
+        elif mtype == "pump":
+            ok = ship.send_pump(target_planet)
         elif mtype == "highway":
             ok = ship.send_highway(target_planet)
         else:
@@ -406,7 +432,6 @@ class PlanetUI:
         y += 6
         res_font = _font(11)
         col_w = (pr.w - 20) // 3
-        cap = p.storage_cap if p.colonized else None
         res_items = [(r, v) for r, v in p.resources.items() if v > 0 or r in p.available_resources]
         for i, (res, val) in enumerate(res_items):
             col = i % 3
@@ -415,7 +440,8 @@ class PlanetUI:
             ry = y + row * 16
             color = RESOURCE_COLORS.get(res, WHITE)
             if p.colonized:
-                near_cap = cap and val >= cap * 0.95
+                cap = p.storage_cap_for(res)
+                near_cap = val >= cap * 0.95
                 label = f"{res[:3].upper()}:{int(val)}/{int(cap)}"
                 t = res_font.render(label, True, RED if near_cap else color)
             else:
@@ -509,6 +535,7 @@ class PlanetUI:
             surface.blit(mt, (SCREEN_W // 2 - mt.get_width() // 2, 20))
 
     def _mission_ok(self, mtype, ship, planet, highways=None):
+        from ship import MINE_RESOURCES, PUMP_RESOURCES
         has_highway = (highways is not None and
                        frozenset({ship.home.id, planet.id}) in highways)
         if planet is ship.home:
@@ -517,6 +544,10 @@ class PlanetUI:
             if planet.explored: return False
         elif mtype == "mine":
             if not planet.explored: return False
+            if not any(r in MINE_RESOURCES for r in planet.available_resources): return False
+        elif mtype == "pump":
+            if not planet.explored: return False
+            if not any(r in PUMP_RESOURCES for r in planet.available_resources): return False
         elif mtype == "colonize":
             if not (planet.explored and planet.habitable and not planet.colonized): return False
         elif mtype == "highway":
@@ -540,11 +571,12 @@ class PlanetUI:
 
         if mtype == "explore":
             mission_dur = getattr(ship, "_discover_duration", 10.0)
-        elif mtype == "mine":
+        elif mtype in ("mine", "pump"):
             mission_dur = getattr(ship, "_mine_duration", 8.0)
         else:
             mission_dur = 0.0
 
+        from ship import MINE_RESOURCES, PUMP_RESOURCES
         one_way = mtype in ("explore", "colonize", "highway")
         total = travel_to + mission_dur + (0 if one_way else travel_back)
 
@@ -557,6 +589,12 @@ class PlanetUI:
             error = (f"{planet.name} déjà explorée", ORANGE)
         elif mtype == "mine" and not planet.explored:
             error = ("Planète non explorée", RED)
+        elif mtype == "mine" and not any(r in MINE_RESOURCES for r in planet.available_resources):
+            error = ("Pas de ressources solides (iron/silver/gold)", ORANGE)
+        elif mtype == "pump" and not planet.explored:
+            error = ("Planète non explorée", RED)
+        elif mtype == "pump" and not any(r in PUMP_RESOURCES for r in planet.available_resources):
+            error = ("Pas de ressources fluides (oil/deuterium)", ORANGE)
 
         elif mtype == "colonize" and not planet.explored:
             error = ("Planète non explorée", RED)
@@ -599,6 +637,8 @@ class PlanetUI:
                 lines.append((f"Découv. : {_fmt_time(mission_dur)}", GOLD))
             elif mtype == "mine":
                 lines.append((f"Extract.: {_fmt_time(mission_dur)}", ORANGE))
+            elif mtype == "pump":
+                lines.append((f"Pompage : {_fmt_time(mission_dur)}", CYAN))
             if not one_way:
                 lines.append((f"Retour  : {_fmt_time(travel_back)}", UI_TEXT))
             lines.append((f"Total   : {_fmt_time(total)}", CYAN))
@@ -837,7 +877,7 @@ class PlanetUI:
         scroll_offset = self._fleet_scroll * row_h
         ry = y - scroll_offset + 4
 
-        _MISSION_LABELS = {"explore": "Explorer", "mine": "Miner",
+        _MISSION_LABELS = {"explore": "Explorer", "mine": "Extraire", "pump": "Pomper",
                            "colonize": "Coloniser", "patrol": "Patrouille",
                            "highway": "Route"}
         mouse_pos = pygame.mouse.get_pos()
@@ -1198,8 +1238,9 @@ class ColonyBar:
 
             # Near-cap warning "!"
             if p.colonized and not mission_mode:
-                cap = p.storage_cap
-                if any(v >= cap * 0.95 for v in p.resources.values()):
+                near_cap = any(v >= p.storage_cap_for(res) * 0.95
+                               for res, v in p.resources.items())
+                if near_cap:
                     wt = _font(9).render("!", True, RED)
                     surface.blit(wt, (br.x + br.w - wt.get_width() - 5,
                                       cy - wt.get_height() // 2))
@@ -1443,7 +1484,7 @@ class ShipUI:
 
         # Cancel + Repeat row (space always reserved)
         has_cancel = s.state in (MISSION_TRAVEL, MISSION_DISCOVER, MISSION_MINE)
-        has_repeat = s.type == "Miner"
+        has_repeat = s.type in ("Miner", "Tanker")
         if has_cancel:
             cancel_btn = Button((pr.x + pr.w // 2 - 70, y + 2, 140, 20),
                                 "Annuler mission", tooltip="cancel_mission")

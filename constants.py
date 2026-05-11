@@ -63,36 +63,48 @@ RESOURCE_MAX_CHAR = 10
 QUEUE_MAX  = 10         # max items per production queue
 LEVEL_MAX  = 10         # max building level
 
-# Storage
-STORAGE_BASE           = 5000  # base cap per resource on any colonized planet
-STORAGE_PER_SILO_LEVEL = 2500  # cap added per Silo level
+# Storage — solids (iron/silver/gold) vs fluids (oil/deuterium)
+SOLID_RESOURCES        = frozenset({"iron", "silver", "gold"})
+FLUID_RESOURCES        = frozenset({"oil", "deuterium"})
 
-# Planet types → which resources they carry
+STORAGE_BASE           = 5000  # base solid cap per colonized planet
+STORAGE_PER_SILO_LEVEL = 2500  # solid cap added per Silo level
+
+FLUID_BASE             = 2000  # base fluid cap per colonized planet
+STORAGE_PER_TANK_LEVEL = 1500  # fluid cap added per Fuel Tank level
+
+# Planet types → fallback resource lists (actual lists are generated procedurally)
 PLANET_RESOURCES = {
-    "rocky":     ["iron", "gold", "silver"],
-    "gas":       ["deuterium", "oil"],
-    "asteroid":  ["iron", "silver", "gold"],
+    "rocky":     ["iron", "oil", "silver"],
+    "gas":       ["oil", "deuterium"],
+    "asteroid":  ["iron", "oil", "silver"],
 }
 
 # Buildings
 BUILDING_DEFS = {
-    "Iron Mine":       {"cost": {"iron": 50},               "time": 10, "produces": {"iron": 2},       "requires": [], "category": "mine"},
-    "Gold Mine":       {"cost": {"iron": 80, "gold": 30},   "time": 20, "produces": {"gold": 1},       "requires": [], "category": "mine"},
-    "Silver Mine":     {"cost": {"iron": 60},               "time": 15, "produces": {"silver": 1.5},   "requires": [], "category": "mine"},
-    "Oil Rig":         {"cost": {"iron": 100},              "time": 25, "produces": {"oil": 1},         "requires": [], "category": "mine"},
-    "Deuterium Plant": {"cost": {"iron": 120, "silver": 40},"time": 30, "produces": {"deuterium": 0.8},"requires": [], "category": "mine"},
-    "Silo":            {"cost": {"iron": 120, "gold": 30},  "time": 25, "produces": {},                "requires": [], "category": "storage"},
-    "Shipyard":        {"cost": {"iron": 200, "gold": 50},  "time": 45, "produces": {},                "requires": [], "category": "factory"},
+    "Iron Mine":       {"cost": {"iron": 50},               "time": 10, "produces": {"iron": 2},        "requires": [], "category": "mine"},
+    "Gold Mine":       {"cost": {"iron": 80, "gold": 30},   "time": 20, "produces": {"gold": 1},        "requires": [], "category": "mine"},
+    "Silver Mine":     {"cost": {"iron": 60},               "time": 15, "produces": {"silver": 1.5},    "requires": [], "category": "mine"},
+    "Oil Pump":        {"cost": {"iron": 80, "gold": 20},   "time": 20, "produces": {"oil": 0.6},       "requires": [], "category": "mine"},
+    "Oil Rig":         {"cost": {"iron": 100},              "time": 25, "produces": {"oil": 1},          "requires": [], "category": "mine"},
+    "Deuterium Pump":  {"cost": {"iron": 100, "silver": 40},"time": 25, "produces": {"deuterium": 0.5}, "requires": [], "category": "mine"},
+    "Deuterium Plant": {"cost": {"iron": 120, "silver": 40},"time": 30, "produces": {"deuterium": 0.8}, "requires": [], "category": "mine"},
+    "Silo":            {"cost": {"iron": 120, "gold": 30},  "time": 25, "produces": {},                 "requires": [], "category": "storage"},
+    "Fuel Tank":       {"cost": {"iron": 100, "silver": 40},"time": 30, "produces": {},                 "requires": [], "category": "storage"},
+    "Shipyard":        {"cost": {"iron": 200, "gold": 50},  "time": 45, "produces": {},                 "requires": [], "category": "factory"},
 }
 
 BUILDING_PLANET_TYPES = {
     "Iron Mine":       ["rocky", "asteroid"],
     "Gold Mine":       ["rocky", "asteroid"],
     "Silver Mine":     ["rocky", "asteroid"],
+    "Oil Pump":        ["rocky", "asteroid"],
     "Oil Rig":         ["gas"],
+    "Deuterium Pump":  ["rocky", "asteroid"],
     "Deuterium Plant": ["gas"],
-    "Shipyard":        ["rocky", "gas", "asteroid"],
     "Silo":            ["rocky", "gas", "asteroid"],
+    "Fuel Tank":       ["rocky", "gas", "asteroid"],
+    "Shipyard":        ["rocky", "gas", "asteroid"],
 }
 
 # Ships — shipyard_level = niveau minimal du chantier naval requis
@@ -102,6 +114,7 @@ SHIP_DEFS = {
     "Miner":      {"cost": {"iron": 120, "gold": 20,  "oil": 10},            "time": 30, "speed": 100, "capacity": 200,  "missions": ["mine"],      "shipyard_level": 1, "fuel_type": "oil",       "fuel_rate": 0.005},
     "Colonizer":  {"cost": {"iron": 300, "gold": 80,  "silver": 50},         "time": 60, "speed": 80,  "capacity": 0,    "missions": ["colonize"],  "shipyard_level": 1, "fuel_type": "oil",       "fuel_rate": 0.006},
     "Scout":      {"cost": {"iron": 80,  "gold": 40},                        "time": 20, "speed": 300, "capacity": 0,    "missions": ["explore"],   "shipyard_level": 3, "fuel_type": "deuterium", "fuel_rate": 0.002},
+    "Tanker":     {"cost": {"iron": 200, "gold": 50},                        "time": 55, "speed": 80,  "capacity": 600,  "missions": ["pump"],      "shipyard_level": 2, "fuel_type": "oil",       "fuel_rate": 0.007},
     "Freighter":  {"cost": {"iron": 250, "gold": 60,  "oil": 30},            "time": 60, "speed": 60,  "capacity": 800,  "missions": ["mine"],      "shipyard_level": 5, "fuel_type": "oil",       "fuel_rate": 0.008},
     "Constructor":{"cost": {"iron": 400, "gold": 100, "silver": 80},         "time": 90,  "speed": 70,  "capacity": 0, "missions": ["highway"],   "shipyard_level": 1, "fuel_type": "oil",       "fuel_rate": 0.005},
     "Fighter":    {"cost": {"iron": 150, "gold": 60},                         "time": 40,  "speed": 120, "capacity": 0, "missions": ["patrol"],    "shipyard_level": 1,
