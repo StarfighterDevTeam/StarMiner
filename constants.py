@@ -79,8 +79,8 @@ BUILDING_DEFS = {
     "Silver Mine":     {"cost": {"iron": 60},               "time": 15, "produces": {"silver": 1.5},   "requires": [], "category": "mine"},
     "Oil Rig":         {"cost": {"iron": 100},              "time": 25, "produces": {"oil": 1},         "requires": [], "category": "mine"},
     "Deuterium Plant": {"cost": {"iron": 120, "silver": 40},"time": 30, "produces": {"deuterium": 0.8},"requires": [], "category": "mine"},
-    "Shipyard":        {"cost": {"iron": 200, "gold": 50},  "time": 45, "produces": {},                "requires": [], "category": "factory"},
     "Silo":            {"cost": {"iron": 120, "gold": 30},  "time": 25, "produces": {},                "requires": [], "category": "storage"},
+    "Shipyard":        {"cost": {"iron": 200, "gold": 50},  "time": 45, "produces": {},                "requires": [], "category": "factory"},
 }
 
 BUILDING_PLANET_TYPES = {
@@ -89,8 +89,8 @@ BUILDING_PLANET_TYPES = {
     "Silver Mine":     ["rocky", "asteroid"],
     "Oil Rig":         ["gas"],
     "Deuterium Plant": ["gas"],
-    "Silo":            ["rocky", "gas", "asteroid"],
     "Shipyard":        ["rocky", "gas", "asteroid"],
+    "Silo":            ["rocky", "gas", "asteroid"],
 }
 
 # Ships — shipyard_level = niveau minimal du chantier naval requis
@@ -100,8 +100,8 @@ SHIP_DEFS = {
     "Colonizer":  {"cost": {"iron": 300, "gold": 80,  "silver": 50},         "time": 60, "speed": 80,  "capacity": 0,    "missions": ["colonize"],  "shipyard_level": 3},
     "Scout":      {"cost": {"iron": 80,  "gold": 40},                        "time": 20, "speed": 300, "capacity": 0,    "missions": ["explore"],   "shipyard_level": 3},
     "Freighter":  {"cost": {"iron": 250, "gold": 60,  "oil": 30},            "time": 60, "speed": 60,  "capacity": 800,  "missions": ["mine"],      "shipyard_level": 5},
-    "Extractor":  {"cost": {"iron": 400, "gold": 100, "oil": 50, "deuterium": 20}, "time": 90, "speed": 80, "capacity": 500, "missions": ["mine"],  "shipyard_level": 8},
-}
+    "Constructor":{"cost": {"iron": 400, "gold": 100, "silver": 80},         "time": 90, "speed": 70,  "capacity": 0,    "missions": ["highway"],   "shipyard_level": 1},
+    }
 
 # Starting resources for player's first planet
 START_RESOURCES = {"iron": 5000, "gold": 1000, "silver": 800, "oil": 50, "deuterium": 30}

@@ -26,17 +26,18 @@ def _mission_eta(ship):
     else:
         mdur = 0.0
     t = ship.target_planet
-    d_there  = math.hypot(ship.home.x - t.x, ship.home.y - t.y) / max(ship.speed, 1)
+    spd = max(getattr(ship, "_effective_speed", ship.speed), 1)
+    d_there  = math.hypot(ship.home.x - t.x, ship.home.y - t.y) / spd
     d_back   = d_there  # symmetric
     total    = d_there + mdur + d_back
     if ship.state == MISSION_TRAVEL:
-        rem = math.hypot(ship.x - t.x, ship.y - t.y) / max(ship.speed, 1) + mdur + d_back
+        rem = math.hypot(ship.x - t.x, ship.y - t.y) / spd + mdur + d_back
     elif ship.state == MISSION_DISCOVER:
         rem = getattr(ship, "_discover_timer", 0.0) + d_back
     elif ship.state == MISSION_MINE:
         rem = getattr(ship, "_mine_timer", 0.0) + d_back
     elif ship.state == MISSION_RETURN:
-        rem = math.hypot(ship.x - ship.home.x, ship.y - ship.home.y) / max(ship.speed, 1)
+        rem = math.hypot(ship.x - ship.home.x, ship.y - ship.home.y) / spd
     else:
         return None
     return (max(0.0, rem), max(total, 0.001))
@@ -216,7 +217,7 @@ class PlanetUI:
                 ship.repeat = not ship.repeat
                 self.show_message(f"Repeat {'activé' if ship.repeat else 'désactivé'}")
 
-        elif tag.startswith("explore:") or tag.startswith("mine:") or tag.startswith("colonize:"):
+        elif tag.startswith("explore:") or tag.startswith("mine:") or tag.startswith("colonize:") or tag.startswith("highway:"):
             mtype, sid = tag.split(":")
             ship = next((s for s in p.ships if s.id == int(sid)), None)
             if ship:
@@ -225,21 +226,32 @@ class PlanetUI:
                     self.show_message("Mission annulée")
                 else:
                     self._mission_mode = (mtype, ship)
-                    verb = {"explore": "explorer", "mine": "miner", "colonize": "coloniser"}.get(mtype, mtype)
+                    verb = {"explore": "explorer", "mine": "miner", "colonize": "coloniser", "highway": "relier en autoroute"}.get(mtype, mtype)
                     self.show_message(f"Cliquez sur une planète à {verb}")
 
-    def dispatch_mission(self, target_planet):
+    def dispatch_mission(self, target_planet, highways=None):
         if not self._mission_mode:
             return
         mtype, ship = self._mission_mode
 
         # Validate — keep mission mode active so the player can pick another planet
-        if mtype == "explore" and target_planet.explored:
-            self.show_message(f"{target_planet.name} est déjà explorée")
-            return
-        if mtype == "mine" and not target_planet.explored:
-            self.show_message(f"Explorez d'abord {target_planet.name}")
-            return
+        if mtype == "explore":
+            if target_planet is ship.home:
+                self.show_message("Même planète — choisissez une autre")
+                return
+            if target_planet.explored:
+                self.show_message(f"{target_planet.name} est déjà explorée")
+                return
+        if mtype == "mine":
+            if target_planet is ship.home:
+                self.show_message("Même planète — choisissez une autre")
+                return
+            if not target_planet.colonized:
+                self.show_message(f"{target_planet.name} n'est pas colonisée")
+                return
+            if not target_planet.explored:
+                self.show_message(f"Explorez d'abord {target_planet.name}")
+                return
         if mtype == "colonize":
             if not target_planet.explored:
                 self.show_message(f"Explorez d'abord {target_planet.name}")
@@ -247,25 +259,40 @@ class PlanetUI:
             if target_planet.colonized:
                 self.show_message(f"{target_planet.name} est déjà colonisée")
                 return
+        if mtype == "highway":
+            if not target_planet.colonized:
+                self.show_message(f"{target_planet.name} n'est pas colonisée")
+                return
+            if target_planet is ship.home:
+                self.show_message("Choisissez une autre planète")
+                return
+            if highways is not None and frozenset({ship.home.id, target_planet.id}) in highways:
+                self.show_message(f"Autoroute déjà existante vers {target_planet.name}")
+                return
 
         self._mission_mode = None
         if mtype == "explore":
             ok = ship.send_explore(target_planet)
         elif mtype == "mine":
             ok = ship.send_mine(target_planet)
+        elif mtype == "highway":
+            ok = ship.send_highway(target_planet)
         else:
             ok = ship.send_colonize(target_planet)
         if mtype == "colonize" and ok:
             self.show_message(f"Coloniseur en route → {target_planet.name} (aller simple)")
+        elif mtype == "highway" and ok:
+            self.show_message(f"Constructeur en route → {target_planet.name} (aller simple)")
         else:
             self.show_message(f"Mission {mtype} → {target_planet.name}" if ok else "Mission échouée")
 
     # ── draw ─────────────────────────────────────────────────────
-    def draw(self, surface, planets):
+    def draw(self, surface, planets, highways=None):
         if not self.visible or not self.planet:
             return
         p = self.planet
         pr = self.panel_rect
+        self._highways = highways
 
         # Background panel
         panel = pygame.Surface((pr.w, pr.h), pygame.SRCALPHA)
@@ -394,15 +421,20 @@ class PlanetUI:
             mt = mf.render(">> Click a planet to set mission target <<", True, ORANGE)
             surface.blit(mt, (SCREEN_W // 2 - mt.get_width() // 2, 20))
 
-    def draw_mission_hover(self, surface, planet, camera):
+    def draw_mission_hover(self, surface, planet, camera, highways=None):
         if not self._mission_mode:
             return
         mtype, ship = self._mission_mode
 
         dist_to   = math.hypot(ship.x - planet.x, ship.y - planet.y)
         dist_back = math.hypot(planet.x - ship.home.x, planet.y - ship.home.y)
-        travel_to   = dist_to   / max(ship.speed, 1)
-        travel_back = dist_back / max(ship.speed, 1)
+
+        # Highway bonus applies if a link already exists
+        has_highway = (highways is not None and
+                       frozenset({ship.home.id, planet.id}) in highways)
+        speed_mult = 1.5 if has_highway else 1.0
+        travel_to   = dist_to   / max(ship.speed * speed_mult, 1)
+        travel_back = dist_back / max(ship.speed * speed_mult, 1)
 
         if mtype == "explore":
             mission_dur = getattr(ship, "_discover_duration", 10.0)
@@ -411,17 +443,42 @@ class PlanetUI:
         else:
             mission_dur = 0.0
 
-        one_way = mtype == "colonize"
+        one_way = mtype in ("colonize", "highway")
         total = travel_to + mission_dur + (0 if one_way else travel_back)
 
-        lines = [(f"Aller   : {_fmt_time(travel_to)}", UI_TEXT)]
-        if mtype == "explore":
-            lines.append((f"Découv. : {_fmt_time(mission_dur)}", GOLD))
-        elif mtype == "mine":
-            lines.append((f"Extract.: {_fmt_time(mission_dur)}", ORANGE))
-        if not one_way:
-            lines.append((f"Retour  : {_fmt_time(travel_back)}", UI_TEXT))
-        lines.append((f"Total   : {_fmt_time(total)}", CYAN))
+        lines = []
+        # Check for blocking conditions first (show error instead of ETA)
+        error = None
+        if planet is ship.home:
+            error = ("Même planète", RED)
+        elif mtype == "explore" and planet.explored:
+            error = (f"{planet.name} déjà explorée", ORANGE)
+        elif mtype == "mine" and not planet.colonized:
+            error = ("Planète non colonisée", RED)
+        elif mtype == "mine" and not planet.explored:
+            error = ("Planète non explorée", RED)
+        elif mtype == "highway" and not planet.colonized:
+            error = ("Planète non colonisée", RED)
+        elif mtype == "highway" and has_highway:
+            error = ("Autoroute déjà existante", ORANGE)
+
+        if error:
+            lines.append(error)
+        elif mtype == "highway":
+            lines.append((f"Aller   : {_fmt_time(travel_to)}", UI_TEXT))
+            lines.append((f"Total   : {_fmt_time(total)}", CYAN))
+            lines.append(("→ +50% vitesse sur ce trajet", GOLD))
+        else:
+            if has_highway:
+                lines.append(("★ Autoroute active (+50%)", GOLD))
+            lines.append((f"Aller   : {_fmt_time(travel_to)}", UI_TEXT))
+            if mtype == "explore":
+                lines.append((f"Découv. : {_fmt_time(mission_dur)}", GOLD))
+            elif mtype == "mine":
+                lines.append((f"Extract.: {_fmt_time(mission_dur)}", ORANGE))
+            if not one_way:
+                lines.append((f"Retour  : {_fmt_time(travel_back)}", UI_TEXT))
+            lines.append((f"Total   : {_fmt_time(total)}", CYAN))
 
         f = _font(11)
         line_h = 15
@@ -604,7 +661,8 @@ class PlanetUI:
 
             cost_str = "  ".join(f"{amt}{r[:3]}" for r, amt in defn["cost"].items())
             actual_time = int(defn["time"] * factor)
-            info = f"{cost_str}  |  {actual_time}s  Vit:{defn['speed']}  Cap:{defn['capacity']}"
+            cap_str = f"  Cap:{defn['capacity']}" if defn['capacity'] > 0 else ""
+            info = f"{cost_str}  |  Vit:{defn['speed']}{cap_str}"
             ct = sf.render(info, True, GRAY if unlocked else (40, 45, 55))
             surface.blit(ct, (pr.x + 12, ry + 22))
 
@@ -935,7 +993,7 @@ class ShipUI:
 
         mission_type = getattr(s, "_mission_type", None)
         if s.state == MISSION_TRAVEL and mission_type:
-            labels = {"explore": "exploration", "mine": "extraction", "colonize": "colonisation"}
+            labels = {"explore": "exploration", "mine": "extraction", "colonize": "colonisation", "highway": "autoroute"}
             state_label += f"  ({labels.get(mission_type, mission_type)})"
         if s.state == MISSION_TRAVEL and mission_type == "colonize":
             state_color = GOLD
@@ -960,12 +1018,13 @@ class ShipUI:
         y += 15
 
         # ETA
+        _spd = max(getattr(s, "_effective_speed", s.speed), 1)
         if s.state == MISSION_TRAVEL and s.target_planet:
             dist = math.hypot(s.target_planet.x - s.x, s.target_planet.y - s.y)
-            eta = dist / s.speed
+            eta = dist / _spd
         elif s.state == MISSION_RETURN:
             dist = math.hypot(s.home.x - s.x, s.home.y - s.y)
-            eta = dist / s.speed
+            eta = dist / _spd
         else:
             eta = None
 

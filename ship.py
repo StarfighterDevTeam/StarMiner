@@ -43,6 +43,7 @@ class Ship:
         defn = SHIP_DEFS[ship_type]
         self.speed = defn["speed"]
         self.capacity = defn["capacity"]
+        self._effective_speed = defn["speed"]  # updated each frame with highway bonus
 
         self.x = float(home_planet.x)
         self.y = float(home_planet.y)
@@ -82,6 +83,14 @@ class Ship:
         self._mission_type = "colonize"
         return True
 
+    def send_highway(self, target):
+        if self.state != MISSION_IDLE: return False
+        if self.type != "Constructor": return False
+        self.target_planet = target
+        self.state = MISSION_TRAVEL
+        self._mission_type = "highway"
+        return True
+
     def cancel_mission(self):
         if self.state in (MISSION_TRAVEL, MISSION_MINE, MISSION_DISCOVER):
             self.state = MISSION_RETURN
@@ -89,12 +98,13 @@ class Ship:
         return False
 
     # ── update ───────────────────────────────────────────────────
-    def update(self, dt, planets):
+    def update(self, dt, planets, highways=None):
         if self.state == MISSION_IDLE:
             return
 
         if self.state == MISSION_TRAVEL:
-            self._move_toward(self.target_planet.x, self.target_planet.y, dt)
+            speed = self._travel_speed(highways)
+            self._move_toward(self.target_planet.x, self.target_planet.y, dt, speed)
             dist = math.hypot(self.x - self.target_planet.x, self.y - self.target_planet.y)
             if dist < 40:
                 self.x = self.target_planet.x
@@ -107,6 +117,13 @@ class Ship:
                     self._mine_timer = self._mine_duration
                 elif self._mission_type == "colonize":
                     self.target_planet.colonize()
+                    if self in self.home.ships:
+                        self.home.ships.remove(self)
+                    self._destroyed = True
+                    return
+                elif self._mission_type == "highway":
+                    if highways is not None:
+                        highways.add(frozenset({self.home.id, self.target_planet.id}))
                     if self in self.home.ships:
                         self.home.ships.remove(self)
                     self._destroyed = True
@@ -129,7 +146,8 @@ class Ship:
                 self.state = MISSION_RETURN
 
         elif self.state == MISSION_RETURN:
-            self._move_toward(self.home.x, self.home.y, dt)
+            speed = self._travel_speed(highways)
+            self._move_toward(self.home.x, self.home.y, dt, speed)
             dist = math.hypot(self.x - self.home.x, self.y - self.home.y)
             if dist < 40:
                 self.x = self.home.x
@@ -144,14 +162,23 @@ class Ship:
                 if self.repeat and getattr(self, "_mission_type", None) == "mine" and prev_target:
                     self.send_mine(prev_target)
 
-    def _move_toward(self, tx, ty, dt):
+    def _travel_speed(self, highways):
+        if highways and self.target_planet:
+            link = frozenset({self.home.id, self.target_planet.id})
+            if link in highways:
+                self._effective_speed = self.speed * 1.5
+                return self._effective_speed
+        self._effective_speed = self.speed
+        return self._effective_speed
+
+    def _move_toward(self, tx, ty, dt, speed=None):
         dx = tx - self.x
         dy = ty - self.y
         dist = math.hypot(dx, dy)
         if dist < 1:
             return
         self.angle = math.atan2(dy, dx)
-        step = min(self.speed * dt, dist)
+        step = min((speed if speed is not None else self.speed) * dt, dist)
         self.x += (dx / dist) * step
         self.y += (dy / dist) * step
 
@@ -210,7 +237,7 @@ class Ship:
             dest_x = self.target_planet.x if self.state == MISSION_TRAVEL else self.home.x
             dest_y = self.target_planet.y if self.state == MISSION_TRAVEL else self.home.y
             dist = math.hypot(dest_x - self.x, dest_y - self.y)
-            eta = dist / self.speed
+            eta = dist / max(self._effective_speed, 1)
             label = f"{int(eta//60)}m {int(eta%60)}s" if eta >= 60 else f"{eta:.0f}s"
             try:
                 font = pygame.font.SysFont("consolas", max(12, int(10 * camera.zoom)))

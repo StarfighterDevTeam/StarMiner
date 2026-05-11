@@ -13,6 +13,7 @@ class Game:
         self.space_map = SpaceMap()
         self.planets = generate_planets(NUM_PLANETS)
         self.ships = []
+        self.highways = set()
         self.ui = PlanetUI()
         self.ship_ui = ShipUI()
         self._hovered_planet = None
@@ -77,7 +78,7 @@ class Game:
                 if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                     for p in self.planets:
                         if p.is_clicked(mx, my, self.camera) and p is not self.ui.planet:
-                            self.ui.dispatch_mission(p)
+                            self.ui.dispatch_mission(p, self.highways)
                             break
                 else:
                     self.camera.handle_event(event)
@@ -119,7 +120,7 @@ class Game:
         for p in self.planets:
             p.update(dt, self.ships)
         for s in self.ships:
-            s.update(dt, self.planets)
+            s.update(dt, self.planets, self.highways)
         self.ships = [s for s in self.ships if not s._destroyed]
 
         mx, my = pygame.mouse.get_pos()
@@ -142,6 +143,7 @@ class Game:
     # ── draw ─────────────────────────────────────────────────────
     def _draw(self):
         self.space_map.draw(self.screen, self.camera)
+        self._draw_highways()
         for p in self.planets:
             p.draw(self.screen, self.camera)
         if self._hovered_planet:
@@ -150,12 +152,26 @@ class Game:
             s.draw(self.screen, self.camera)
         if self._hovered_ship:
             self._hovered_ship.draw_hover(self.screen, self.camera)
-        self.ui.draw(self.screen, self.planets)
+        self.ui.draw(self.screen, self.planets, self.highways)
         if self._hovered_planet:
-            self.ui.draw_mission_hover(self.screen, self._hovered_planet, self.camera)
+            self.ui.draw_mission_hover(self.screen, self._hovered_planet, self.camera, self.highways)
         self.ship_ui.draw(self.screen)
         self._draw_hud()
         pygame.display.flip()
+
+    def _draw_highways(self):
+        planet_by_id = {p.id: p for p in self.planets}
+        for link in self.highways:
+            ids = list(link)
+            if len(ids) != 2: continue
+            pa = planet_by_id.get(ids[0])
+            pb = planet_by_id.get(ids[1])
+            if not pa or not pb: continue
+            ax, ay = self.camera.world_to_screen(pa.x, pa.y)
+            bx, by = self.camera.world_to_screen(pb.x, pb.y)
+            surf = pygame.Surface((SCREEN_W, SCREEN_H), pygame.SRCALPHA)
+            pygame.draw.line(surf, (*GOLD, 80), (ax, ay), (bx, by), 2)
+            self.screen.blit(surf, (0, 0))
 
     def _draw_hud(self):
         try:
