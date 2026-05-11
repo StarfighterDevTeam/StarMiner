@@ -296,7 +296,7 @@ class PlanetUI:
             self.show_message(f"Mission {mtype} → {target_planet.name}" if ok else "Mission échouée")
 
     # ── draw ─────────────────────────────────────────────────────
-    def draw(self, surface, planets, highways=None):
+    def draw(self, surface, planets, highways=None, patrol_mode_ship=None):
         if not self.visible or not self.planet:
             return
         p = self.planet
@@ -399,7 +399,7 @@ class PlanetUI:
             elif self._tab == "ships":
                 self._draw_ships_tab(surface, pr, content_y, p)
             elif self._tab == "fleet":
-                self._draw_fleet(surface, pr, content_y, p)
+                self._draw_fleet(surface, pr, content_y, p, patrol_mode_ship)
 
             surface.set_clip(None)
 
@@ -715,12 +715,11 @@ class PlanetUI:
 
             ry += row_h
 
-    def _draw_fleet(self, surface, pr, y, p):
+    def _draw_fleet(self, surface, pr, y, p, patrol_mode_ship=None):
         f = _font(12)
         sf = _font(10)
-        docked = p.ships
-        if not docked:
-            t = f.render("No ships docked here", True, GRAY)
+        if not p.ships:
+            t = f.render("Aucun vaisseau assigné", True, GRAY)
             surface.blit(t, (pr.x + 20, y + 10))
             return
 
@@ -728,23 +727,51 @@ class PlanetUI:
         scroll_offset = self._fleet_scroll * row_h
         ry = y - scroll_offset + 4
 
-        for ship in docked:
+        for ship in p.ships:
             if ry + row_h < y or ry > y + 400:
                 ry += row_h
                 continue
 
-            bg_color = (20, 25, 40)
-            pygame.draw.rect(surface, bg_color, (pr.x + 6, ry + 2, pr.w - 12, row_h - 4), border_radius=4)
-            pygame.draw.rect(surface, UI_BORDER, (pr.x + 6, ry + 2, pr.w - 12, row_h - 4), 1, border_radius=4)
+            here = ship.is_docked
+            bg_color  = (14, 30, 18) if here else (20, 25, 40)
+            brd_color = (50, 160, 80) if here else UI_BORDER
+            pygame.draw.rect(surface, bg_color,  (pr.x + 6, ry + 2, pr.w - 12, row_h - 4), border_radius=4)
+            pygame.draw.rect(surface, brd_color, (pr.x + 6, ry + 2, pr.w - 12, row_h - 4), 1, border_radius=4)
 
+            # Line 1 – name + dock badge
             nt = f.render(f"{ship.type} #{ship.id}", True, CYAN)
             surface.blit(nt, (pr.x + 12, ry + 6))
+            if here:
+                badge = sf.render("ANCRÉ", True, (80, 220, 120))
+                surface.blit(badge, (pr.x + pr.w - badge.get_width() - 12, ry + 8))
 
-            state_color = {
-                "idle": GRAY, "travel": CYAN, "discovering": GOLD,
-                "mining": ORANGE, "returning": GREEN, "exploring": CYAN
-            }.get(ship.state, WHITE)
-            st = sf.render(f"State: {ship.state}", True, state_color)
+            # Line 2 – status
+            if here:
+                st_txt = f"Idle – ancré"
+                st_col = (80, 220, 120)
+            elif ship.state == "idle":
+                # Idle but physically elsewhere (e.g. after patrol cancel)
+                st_txt = f"Idle – hors base"
+                st_col = ORANGE
+            elif ship.state == "patrol":
+                dp = getattr(ship, "_dock_planet", None)
+                if dp and dp is not p:
+                    st_txt = f"Patrouille → {dp.name}"
+                else:
+                    st_txt = "Patrouille"
+                st_col = ORANGE
+            elif ship.state == "combat":
+                st_txt = "Combat"
+                st_col = RED
+            else:
+                st_txt, st_col = {
+                    "travel":     ("En transit",   CYAN),
+                    "discovering":("Découverte",   GOLD),
+                    "mining":     ("Extraction",   ORANGE),
+                    "returning":  ("Retour base",  GREEN),
+                    "exploring":  ("Exploration",  CYAN),
+                }.get(ship.state, (ship.state, WHITE))
+            st = sf.render(st_txt, True, st_col)
             surface.blit(st, (pr.x + 12, ry + 22))
 
             if ship.state == "idle":
@@ -752,14 +779,31 @@ class PlanetUI:
                 bx = pr.x + pr.w - 170
                 for mi, mtype in enumerate(missions):
                     is_active = self._mission_mode == (mtype, ship)
+                    _MISSION_LABELS = {"explore": "Explorer", "mine": "Miner",
+                                       "colonize": "Coloniser", "patrol": "Patrouille",
+                                       "highway": "Route"}
+                    if mtype == "patrol":
+                        is_active = patrol_mode_ship is ship
                     btn = Button((bx + mi * 82, ry + 10, 76, 20),
-                                 mtype.capitalize(), enabled=True,
+                                 _MISSION_LABELS.get(mtype, mtype.capitalize()), enabled=True,
                                  tooltip=f"{mtype}:{ship.id}", active=is_active)
                     btn.handle_mouse(pygame.mouse.get_pos())
                     btn.draw(surface)
                     self._buttons.append(btn)
-            elif ship.state in ("travel", "discovering", "mining", "patrol", "combat"):
-                btn = Button((pr.x + pr.w - 90, ry + 16, 80, 20),
+            elif ship.state in ("patrol", "combat"):
+                patrol_btn = Button((pr.x + pr.w - 170, ry + 10, 76, 20),
+                                    "Patrouille", tooltip=f"patrol:{ship.id}",
+                                    active=patrol_mode_ship is ship)
+                patrol_btn.handle_mouse(pygame.mouse.get_pos())
+                patrol_btn.draw(surface)
+                self._buttons.append(patrol_btn)
+                btn = Button((pr.x + pr.w - 90, ry + 10, 80, 20),
+                             "Annuler", tooltip=f"cancel_mission:{ship.id}")
+                btn.handle_mouse(pygame.mouse.get_pos())
+                btn.draw(surface)
+                self._buttons.append(btn)
+            elif ship.state in ("travel", "discovering", "mining"):
+                btn = Button((pr.x + pr.w - 90, ry + 10, 80, 20),
                              "Annuler", tooltip=f"cancel_mission:{ship.id}")
                 btn.handle_mouse(pygame.mouse.get_pos())
                 btn.draw(surface)
@@ -1081,7 +1125,7 @@ class ShipUI:
         self.ship = None
 
     def _compute_panel_h(self, s):
-        from ship import MISSION_TRAVEL, MISSION_DISCOVER, MISSION_MINE, MISSION_RETURN, MISSION_PATROL, MISSION_COMBAT
+        from ship import MISSION_TRAVEL, MISSION_DISCOVER, MISSION_MINE, MISSION_RETURN
         h = 10 + 20 + 16 + 8 + 18 + 15 + 15  # pad + title + home + sep + status + depart + dest
 
         if s.state in (MISSION_TRAVEL, MISSION_RETURN):
@@ -1090,10 +1134,9 @@ class ShipUI:
             h += 15 + 12  # discover timer + bar
         if s.state == MISSION_MINE:
             h += 15       # mine timer
-        if s.state in (MISSION_TRAVEL, MISSION_DISCOVER, MISSION_MINE) or s.type == "Miner":
-            h += 26       # cancel + repeat row
-        if s.state in (MISSION_PATROL, MISSION_COMBAT):
-            h += 26       # cancel patrol row
+        h += 26  # cancel/repeat row (always reserved)
+        if s.fire_range > 0:
+            h += 26  # patrol row (always reserved for combat ships)
 
         if s.capacity > 0:
             h += 8   # separator before cargo
@@ -1118,7 +1161,7 @@ class ShipUI:
     @property
     def panel_rect(self):
         h = getattr(self, '_panel_h', self.PANEL_H)
-        return pygame.Rect(10, int(SCREEN_H) - h - 36, self.PANEL_W, h)
+        return pygame.Rect(10, int(SCREEN_H) - h - 56, self.PANEL_W, h)
 
     def handle_event(self, event):
         if not self.visible:
@@ -1294,31 +1337,39 @@ class ShipUI:
             surface.blit(mt, (pr.x + 12, y))
             y += 15
 
-        # Cancel + Repeat sur la même ligne
+        # Cancel + Repeat row (space always reserved)
         has_cancel = s.state in (MISSION_TRAVEL, MISSION_DISCOVER, MISSION_MINE)
-        has_patrol_cancel = s.state in (MISSION_PATROL, MISSION_COMBAT)
         has_repeat = s.type == "Miner"
-        if has_cancel or has_repeat:
-            if has_cancel:
-                cancel_btn = Button((pr.x + pr.w // 2 - 70, y + 2, 140, 20),
-                                    "Annuler mission", tooltip="cancel_mission")
-                cancel_btn.handle_mouse(pygame.mouse.get_pos())
-                cancel_btn.draw(surface)
-                self._buttons.append(cancel_btn)
-            if has_repeat:
-                repeat_btn = Button((pr.x + pr.w - 88, y + 2, 76, 20),
-                                    "Repeat", active=s.repeat, tooltip="toggle_repeat")
-                repeat_btn.handle_mouse(pygame.mouse.get_pos())
-                repeat_btn.draw(surface)
-                self._buttons.append(repeat_btn)
-            y += 26
-        if has_patrol_cancel:
+        if has_cancel:
             cancel_btn = Button((pr.x + pr.w // 2 - 70, y + 2, 140, 20),
-                                "Annuler patrouille", tooltip="cancel_mission")
+                                "Annuler mission", tooltip="cancel_mission")
             cancel_btn.handle_mouse(pygame.mouse.get_pos())
             cancel_btn.draw(surface)
             self._buttons.append(cancel_btn)
-            y += 26
+        if has_repeat:
+            repeat_btn = Button((pr.x + pr.w - 88, y + 2, 76, 20),
+                                "Repeat", active=s.repeat, tooltip="toggle_repeat")
+            repeat_btn.handle_mouse(pygame.mouse.get_pos())
+            repeat_btn.draw(surface)
+            self._buttons.append(repeat_btn)
+        y += 26  # always advance
+
+        # Patrol row for combat ships (space always reserved)
+        if s.fire_range > 0:
+            has_patrol_cancel = s.state in (MISSION_PATROL, MISSION_COMBAT)
+            bx = pr.x + 10# if has_patrol_cancel else pr.x + pr.w // 2 - 55
+            bw = 140# if has_patrol_cancel else 110
+            patrol_btn = Button((bx, y + 2, bw, 20), "Patrouille", tooltip="patrol_request")
+            patrol_btn.handle_mouse(pygame.mouse.get_pos())
+            patrol_btn.draw(surface)
+            self._buttons.append(patrol_btn)
+            if has_patrol_cancel:
+                cancel_btn = Button((pr.x + pr.w - 150, y + 2, 140, 20),
+                                    "Annuler patrouille", tooltip="cancel_mission")
+                cancel_btn.handle_mouse(pygame.mouse.get_pos())
+                cancel_btn.draw(surface)
+                self._buttons.append(cancel_btn)
+            y += 26  # always advance
 
         # ── Cargo ────────────────────────────────────────────────
         if s.capacity > 0:
@@ -1374,15 +1425,7 @@ class ShipUI:
             surface.blit(cf.render(stats, True, (160, 100, 100)), (pr.x + 12, y))
             y += 14
 
-            # Patrol button (only when idle)
-            if s.state == MISSION_IDLE:
-                patrol_btn = Button((pr.x + pr.w // 2 - 55, y, 110, 20),
-                                    "Patrouille", tooltip="patrol_request")
-                patrol_btn.handle_mouse(pygame.mouse.get_pos())
-                patrol_btn.draw(surface)
-                self._buttons.append(patrol_btn)
-                y += 26
-            elif s.state == MISSION_COMBAT and s._target_enemy:
+            if s.state == MISSION_COMBAT and s._target_enemy:
                 tgt_t = _font(10).render(f"Cible: #{s._target_enemy.id}", True, RED)
                 surface.blit(tgt_t, (pr.x + 12, y))
                 y += 14

@@ -110,9 +110,11 @@ class Ship:
         return True
 
     def send_patrol(self, wx, wy, dock_planet=None):
-        if self.state != MISSION_IDLE: return False
+        if self.state not in (MISSION_IDLE, MISSION_PATROL, MISSION_COMBAT): return False
         self._patrol_dest = (wx, wy)
         self._dock_planet = dock_planet
+        self._pre_combat_dest = None
+        self._target_enemy = None
         self.state = MISSION_PATROL
         return True
 
@@ -134,7 +136,7 @@ class Ship:
         closest = None
         closest_dist = self.fire_range
         for s in all_ships:
-            if s is self or s.faction == self.faction or s._destroyed:
+            if s is self or s.faction == self.faction or s._destroyed or s.is_docked:
                 continue
             dist = math.hypot(s.x - self.x, s.y - self.y)
             if dist <= self.fire_range and dist < closest_dist:

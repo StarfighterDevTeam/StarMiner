@@ -124,39 +124,45 @@ class Game:
                         self.camera.y = cb_planet.y - SCREEN_H / (2 * self.camera.zoom)
                 continue
 
-            # Ship UI events (intercepts clicks on its panel)
-            ship_ev = self.ship_ui.handle_event(event)
-            if ship_ev == "patrol_requested":
-                self._patrol_mode_ship = self.ship_ui.ship
-                self.ship_ui.close()
-                continue
-            if ship_ev:
-                continue
-
-            # Planet UI events
-            if self.ui.handle_event(event, self.planets, self.ships):
-                continue
-
             # Patrol mode: click map to send combat ship to a destination
+            # (checked before ShipUI so an outside click doesn't auto-close the panel)
             if self._patrol_mode_ship:
                 if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                     on_ui = ((self.ui.visible and self.ui.panel_rect.collidepoint((mx, my))) or
                              (self.ship_ui.visible and self.ship_ui.panel_rect.collidepoint((mx, my))) or
                              self.colony_bar.contains_point((mx, my), self.planets))
                     if not on_ui:
+                        wx, wy = self.camera.screen_to_world(mx, my)
                         dock_planet = next(
                             (p for p in self.planets
-                             if p.colonized and p.is_clicked(mx, my, self.camera)), None)
-                        wx, wy = self.camera.screen_to_world(mx, my)
+                             if p.colonized
+                             and (wx - p.x) ** 2 + (wy - p.y) ** 2 < (p.size + 10) ** 2),
+                            None)
                         if dock_planet:
                             wx, wy = dock_planet.x, dock_planet.y
                         ship = self._patrol_mode_ship
                         self._patrol_mode_ship = None
-                        if ship.state == "idle":
-                            ship.send_patrol(wx, wy, dock_planet=dock_planet)
+                        ship.send_patrol(wx, wy, dock_planet=dock_planet)
                         continue
                 else:
                     self.camera.handle_event(event)
+                continue
+
+            # Ship UI events (intercepts clicks on its panel)
+            ship_ev = self.ship_ui.handle_event(event)
+            if ship_ev == "patrol_requested":
+                self._patrol_mode_ship = self.ship_ui.ship
+                continue
+            if ship_ev:
+                continue
+
+            # Planet UI events
+            if self.ui.handle_event(event, self.planets, self.ships):
+                # Promote patrol request immediately so the patrol block
+                # can protect subsequent events within the same frame.
+                if self.ui._patrol_request:
+                    self._patrol_mode_ship = self.ui._patrol_request
+                    self.ui._patrol_request = None
                 continue
 
             # Mission target selection: only left-click picks a planet
@@ -204,11 +210,6 @@ class Game:
         self.space_map.update(dt)
         self.ui.update(dt)
 
-        # Check if PlanetUI requested patrol mode for a fleet ship
-        if getattr(self.ui, '_patrol_request', None):
-            self._patrol_mode_ship = self.ui._patrol_request
-            self.ui._patrol_request = None
-
         all_ships = self.ships + self.enemy_ships
         for p in self.planets:
             p.update(dt, self.ships)
@@ -247,12 +248,14 @@ class Game:
         if self._hovered_planet:
             self._hovered_planet.draw_hover(self.screen, self.camera)
         for s in self.ships:
-            s.draw(self.screen, self.camera)
+            if not s.is_docked:
+                s.draw(self.screen, self.camera)
         for s in self.enemy_ships:
             s.draw(self.screen, self.camera)
         if self._hovered_ship:
             self._hovered_ship.draw_hover(self.screen, self.camera)
-        self.ui.draw(self.screen, self.planets, self.highways)
+        self.ui.draw(self.screen, self.planets, self.highways,
+                     patrol_mode_ship=self._patrol_mode_ship)
         if self._hovered_planet:
             self.ui.draw_mission_hover(self.screen, self._hovered_planet, self.camera, self.highways)
         self.ship_ui.draw(self.screen)
