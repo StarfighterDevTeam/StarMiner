@@ -212,7 +212,7 @@ class Game:
         home = self.planets[0]
         cap = home.storage_cap
         x = 8
-        y = SCREEN_H - 20
+        y = SCREEN_H - 40
         for res in RESOURCE_NAMES:
             val = home.resources.get(res, 0)
             color = RESOURCE_COLORS.get(res, WHITE)
@@ -222,5 +222,5 @@ class Game:
             x += t.get_width() + 12
 
         hint = "WASD/Arrows:scroll  |  Scroll:zoom  |  RMB drag:pan  |  Click:select  |  ESC:fermer"
-        ht = font.render(hint, True, (60, 70, 90))
-        self.screen.blit(ht, (SCREEN_W - ht.get_width() - 8, SCREEN_H - 20))
+        ht = font.render(hint, True, GRAY)
+        self.screen.blit(ht, (SCREEN_W - ht.get_width() - 8, SCREEN_H - 40))
