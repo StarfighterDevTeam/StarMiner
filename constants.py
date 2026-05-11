@@ -1,11 +1,13 @@
 import pygame
 
 # World
-WORLD_W = 12000
-WORLD_H = 12000
+WORLD_W = 24000
+WORLD_H = 24000
 SECTOR_SIZE = 800          # pixels per sector cell
-PLANET_MIN_DIST = 1200     # min distance between planets
-NUM_PLANETS = 18
+PLANET_MIN_DIST = 1000     # min distance between planets
+PLANET_MAX_DIST = 2000     # max distance between planets
+NUM_PLANETS = 30
+HABITABLE_RATIO = 0.25     # fraction of non-home planets that can be colonized
 
 # Window
 SCREEN_W = 1280
@@ -14,7 +16,7 @@ FPS = 60
 
 # Scroll
 SCROLL_SPEED = 15
-ZOOM_MIN = 0.3
+ZOOM_MIN = 0.1
 ZOOM_MAX = 2.0
 ZOOM_STEP = 0.1
 ZOOM_INIT = 0.8

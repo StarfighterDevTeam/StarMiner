@@ -254,6 +254,9 @@ class PlanetUI:
             if not target_planet.explored:
                 self.show_message(f"Explorez d'abord {target_planet.name}")
                 return
+            if not target_planet.habitable:
+                self.show_message(f"{target_planet.name} n'est pas habitable")
+                return
             if target_planet.colonized:
                 self.show_message(f"{target_planet.name} est déjà colonisée")
                 return
@@ -313,6 +316,11 @@ class PlanetUI:
         status = "HOME" if p.is_home else ("Colonized" if p.colonized else ("Explored" if p.explored else "Unknown"))
         sub = sub_font.render(f"{type_label}  |  {status}", True, GRAY)
         surface.blit(sub, (pr.x + 12, y))
+        if p.explored:
+            hab_label = "Habitable" if p.habitable else "Non habitable"
+            hab_color = GREEN if p.habitable else RED
+            ht = _font(10).render(hab_label, True, hab_color)
+            surface.blit(ht, (pr.x + pr.w - ht.get_width() - 12, y + 2))
         y += 18
 
 
@@ -397,14 +405,18 @@ class PlanetUI:
             # ── Uncolonized hint ──────────────────────────────────────
             hf = _font(11)
             hc = (70, 80, 100)
-            surface.blit(hf.render("Cette planète n'est pas colonisée.", True, hc), (pr.x + 12, y + 10))
-            if p.explored:
+            if p.explored == False:
+                surface.blit(hf.render("Cette planète n'est pas explorée.", True, hc), (pr.x + 12, y + 10))
+                surface.blit(hf.render("Explorez-la avec une Probe.", True, hc), (pr.x + 12, y + 26))
+            elif p.habitable and p.colonized == False:
+                surface.blit(hf.render("Cette planète n'est pas colonisée.", True, hc), (pr.x + 12, y + 10))
                 surface.blit(hf.render("Envoyez un Colonisateur depuis votre flotte", True, hc), (pr.x + 12, y + 26))
                 surface.blit(hf.render("pour prendre possession de cette planète.", True, hc), (pr.x + 12, y + 42))
-            else:
-                surface.blit(hf.render("Explorez-la avec une Probe, puis envoyez", True, hc), (pr.x + 12, y + 26))
-                surface.blit(hf.render("un Colonisateur depuis votre flotte.", True, hc), (pr.x + 12, y + 42))
-
+            elif p.habitable == False:
+                surface.blit(hf.render("Cette planète n'est pas habitable", True, hc), (pr.x + 12, y + 10))
+                surface.blit(hf.render("mais elle peut être minée.", True, hc), (pr.x + 12, y + 26))
+                surface.blit(hf.render("Envoyer un Miner pour extraire ses ressources.", True, hc), (pr.x + 12, y + 42))
+            
         # ── Message ──────────────────────────────────────────────
         if self._msg_timer > 0 and self._message:
             alpha = min(255, int(self._msg_timer * 120))
@@ -453,10 +465,23 @@ class PlanetUI:
             error = (f"{planet.name} déjà explorée", ORANGE)
         elif mtype == "mine" and not planet.explored:
             error = ("Planète non explorée", RED)
+        elif mtype == "mine" and not planet.colonized:
+            error = ("Planète non colonisée", RED)
+        elif mtype == "colonize" and not planet.explored:
+            error = ("Planète non explorée", RED)
+        elif mtype == "colonize" and not planet.habitable:
+            error = ("Planète non habitable", RED)
+        elif mtype == "colonize" and planet.colonized:
+            error = ("Déjà colonisée", ORANGE)
         elif mtype == "highway" and not planet.colonized:
             error = ("Planète non colonisée", RED)
         elif mtype == "highway" and has_highway:
             error = ("Autoroute déjà existante", ORANGE)
+
+        # Habitability hint appended to valid targets when relevant
+        hab_hint = None
+        if error is None and planet.explored and not planet.habitable and mtype != "colonize":
+            hab_hint = ("Non colonisable (inhabitable)", (100, 80, 60))
 
         if error:
             lines.append(error)
@@ -475,6 +500,8 @@ class PlanetUI:
             if not one_way:
                 lines.append((f"Retour  : {_fmt_time(travel_back)}", UI_TEXT))
             lines.append((f"Total   : {_fmt_time(total)}", CYAN))
+            if hab_hint:
+                lines.append(hab_hint)
 
         f = _font(11)
         line_h = 15

@@ -36,7 +36,7 @@ PLANET_SIZES = {"rocky": 80, "gas": 96, "asteroid": 72}
 class Planet:
     _id_counter = 0
 
-    def __init__(self, x, y, planet_type, name, is_home=False):
+    def __init__(self, x, y, planet_type, name, is_home=False, habitable=False):
         Planet._id_counter += 1
         self.id = Planet._id_counter
         self.x = x
@@ -47,6 +47,7 @@ class Planet:
         self.colonized = is_home
         self.explored = is_home
         self.is_home = is_home
+        self.habitable = is_home or habitable
 
         # Resources
         self.resources = {r: 0.0 for r in RESOURCE_NAMES}
@@ -316,9 +317,14 @@ def generate_planets(num=NUM_PLANETS):
             (px - p.x)**2 + (py - p.y)**2 < PLANET_MIN_DIST**2
             for p in planets
         )
-        if too_close:
+        too_far = all(
+            (px - p.x)**2 + (py - p.y)**2 > PLANET_MAX_DIST**2
+            for p in planets
+        )
+        if too_close or too_far:
             continue
         ptype = rng.choices(types, type_weights)[0]
-        planets.append(Planet(px, py, ptype, rand_name()))
+        habitable = rng.random() < HABITABLE_RATIO
+        planets.append(Planet(px, py, ptype, rand_name(), habitable=habitable))
 
     return planets
