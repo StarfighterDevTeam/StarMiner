@@ -12,6 +12,35 @@ def _fmt_time(secs):
     s = int(secs)
     return f"{s // 60}m{s % 60:02d}s" if s >= 60 else f"{s}s"
 
+def _mission_eta(ship):
+    """Returns (remaining_secs, total_secs) for the full mission, or None."""
+    import math
+    from ship import MISSION_IDLE, MISSION_TRAVEL, MISSION_DISCOVER, MISSION_MINE, MISSION_RETURN
+    if ship.state == MISSION_IDLE or ship.target_planet is None:
+        return None
+    mtype = getattr(ship, "_mission_type", None)
+    if mtype == "mine":
+        mdur = getattr(ship, "_mine_duration", 8.0)
+    elif mtype == "explore":
+        mdur = getattr(ship, "_discover_duration", 10.0)
+    else:
+        mdur = 0.0
+    t = ship.target_planet
+    d_there  = math.hypot(ship.home.x - t.x, ship.home.y - t.y) / max(ship.speed, 1)
+    d_back   = d_there  # symmetric
+    total    = d_there + mdur + d_back
+    if ship.state == MISSION_TRAVEL:
+        rem = math.hypot(ship.x - t.x, ship.y - t.y) / max(ship.speed, 1) + mdur + d_back
+    elif ship.state == MISSION_DISCOVER:
+        rem = getattr(ship, "_discover_timer", 0.0) + d_back
+    elif ship.state == MISSION_MINE:
+        rem = getattr(ship, "_mine_timer", 0.0) + d_back
+    elif ship.state == MISSION_RETURN:
+        rem = math.hypot(ship.x - ship.home.x, ship.y - ship.home.y) / max(ship.speed, 1)
+    else:
+        return None
+    return (max(0.0, rem), max(total, 0.001))
+
 _BTN_ACTIVE     = (160, 90, 10)
 _BTN_ACTIVE_HOV = (200, 120, 20)
 _BTN_ACTIVE_TXT = (255, 210, 120)
@@ -173,6 +202,19 @@ class PlanetUI:
             b = p.get_building(bname)
             lvl = b.level if b else "?"
             self.show_message(f"Upgrade {bname} → Niv.{lvl + 1 if b else '?'}..." if ok else "Upgrade impossible")
+
+        elif tag.startswith("cancel_mission:"):
+            sid = int(tag.split(":")[1])
+            ship = next((s for s in p.ships if s.id == sid), None)
+            if ship and ship.cancel_mission():
+                self.show_message("Mission annulée")
+
+        elif tag.startswith("toggle_repeat:"):
+            sid = int(tag.split(":")[1])
+            ship = next((s for s in p.ships if s.id == sid), None)
+            if ship:
+                ship.repeat = not ship.repeat
+                self.show_message(f"Repeat {'activé' if ship.repeat else 'désactivé'}")
 
         elif tag.startswith("explore:") or tag.startswith("mine:") or tag.startswith("colonize:"):
             mtype, sid = tag.split(":")
@@ -593,7 +635,7 @@ class PlanetUI:
             surface.blit(t, (pr.x + 20, y + 10))
             return
 
-        row_h = 56
+        row_h = 70
         scroll_offset = self._fleet_scroll * row_h
         ry = y - scroll_offset + 4
 
@@ -627,12 +669,43 @@ class PlanetUI:
                     btn.handle_mouse(pygame.mouse.get_pos())
                     btn.draw(surface)
                     self._buttons.append(btn)
+            elif ship.state in ("travel", "discovering", "mining"):
+                btn = Button((pr.x + pr.w - 90, ry + 16, 80, 20),
+                             "Annuler", tooltip=f"cancel_mission:{ship.id}")
+                btn.handle_mouse(pygame.mouse.get_pos())
+                btn.draw(surface)
+                self._buttons.append(btn)
+
+            if ship.type == "Miner":
+                rbtn = Button((pr.x + pr.w - 170, ry + 37, 76, 15),
+                              "Repeat", active=ship.repeat,
+                              tooltip=f"toggle_repeat:{ship.id}")
+                rbtn.handle_mouse(pygame.mouse.get_pos())
+                rbtn.draw(surface)
+                self._buttons.append(rbtn)
 
             cargo_total = sum(ship.cargo.values())
             if cargo_total > 0:
                 cargo_str = "  ".join(f"{int(v)} {r[:RESOURCE_MAX_CHAR]}" for r, v in ship.cargo.items() if v > 0)
                 ct = sf.render(f"Cargo: {cargo_str}", True, GOLD)
                 surface.blit(ct, (pr.x + 12, ry + 36))
+
+            eta_data = _mission_eta(ship)
+            if eta_data:
+                rem, total = eta_data
+                progress = max(0.0, min(1.0, 1.0 - rem / total))
+                state_color = {"travel": CYAN, "discovering": GOLD,
+                               "mining": ORANGE, "returning": GREEN}.get(ship.state, CYAN)
+                # ETA text
+                eta_t = _font(9).render(f"ETA: {_fmt_time(rem)}", True, state_color)
+                surface.blit(eta_t, (pr.x + 12, ry + 52))
+                # Compact progress bar
+                bar_x, bar_y, bar_w, bar_h = pr.x + 12, ry + 63, pr.w - 30, 4
+                pygame.draw.rect(surface, (22, 28, 48), (bar_x, bar_y, bar_w, bar_h), border_radius=2)
+                fw = int(bar_w * progress)
+                if fw > 0:
+                    pygame.draw.rect(surface, state_color, (bar_x, bar_y, fw, bar_h), border_radius=2)
+                pygame.draw.rect(surface, (40, 55, 80), (bar_x, bar_y, bar_w, bar_h), 1, border_radius=2)
 
             ry += row_h
 
@@ -769,8 +842,8 @@ class ShipUI:
             h += 15 + 12  # discover timer + bar
         if s.state == MISSION_MINE:
             h += 15       # mine timer
-        if s.state in (MISSION_TRAVEL, MISSION_DISCOVER, MISSION_MINE):
-            h += 26       # cancel button
+        if s.state in (MISSION_TRAVEL, MISSION_DISCOVER, MISSION_MINE) or s.type == "Miner":
+            h += 26       # cancel + repeat row
 
         if s.capacity > 0:
             h += 8   # separator before cargo
@@ -801,6 +874,8 @@ class ShipUI:
             if btn.is_clicked(pos, event):
                 if btn.tooltip == "cancel_mission" and self.ship:
                     self.ship.cancel_mission()
+                elif btn.tooltip == "toggle_repeat" and self.ship:
+                    self.ship.repeat = not self.ship.repeat
                 return True
         if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
             if not self.panel_rect.collidepoint(pos):
@@ -949,13 +1024,22 @@ class ShipUI:
             surface.blit(mt, (pr.x + 12, y))
             y += 15
 
-        # Cancel mission button
-        if s.state in (MISSION_TRAVEL, MISSION_DISCOVER, MISSION_MINE):
-            cancel_btn = Button((pr.x + pr.w // 2 - 70, y + 2, 140, 20),
-                                "Annuler mission", tooltip="cancel_mission")
-            cancel_btn.handle_mouse(pygame.mouse.get_pos())
-            cancel_btn.draw(surface)
-            self._buttons.append(cancel_btn)
+        # Cancel + Repeat sur la même ligne
+        has_cancel = s.state in (MISSION_TRAVEL, MISSION_DISCOVER, MISSION_MINE)
+        has_repeat = s.type == "Miner"
+        if has_cancel or has_repeat:
+            if has_cancel:
+                cancel_btn = Button((pr.x + pr.w // 2 - 70, y + 2, 140, 20),
+                                    "Annuler mission", tooltip="cancel_mission")
+                cancel_btn.handle_mouse(pygame.mouse.get_pos())
+                cancel_btn.draw(surface)
+                self._buttons.append(cancel_btn)
+            if has_repeat:
+                repeat_btn = Button((pr.x + pr.w - 88, y + 2, 76, 20),
+                                    "Repeat", active=s.repeat, tooltip="toggle_repeat")
+                repeat_btn.handle_mouse(pygame.mouse.get_pos())
+                repeat_btn.draw(surface)
+                self._buttons.append(repeat_btn)
             y += 26
 
         # ── Cargo ────────────────────────────────────────────────

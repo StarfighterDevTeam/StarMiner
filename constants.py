@@ -89,8 +89,8 @@ BUILDING_PLANET_TYPES = {
     "Silver Mine":     ["rocky", "asteroid"],
     "Oil Rig":         ["gas"],
     "Deuterium Plant": ["gas"],
-    "Shipyard":        ["rocky", "gas", "asteroid"],
     "Silo":            ["rocky", "gas", "asteroid"],
+    "Shipyard":        ["rocky", "gas", "asteroid"],
 }
 
 # Ships — shipyard_level = niveau minimal du chantier naval requis

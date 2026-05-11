@@ -56,6 +56,7 @@ class Ship:
         self._discover_timer = 0.0
         self._discover_duration = 10.0
         self._destroyed = False
+        self.repeat = False
 
     # ── missions ─────────────────────────────────────────────────
     def send_explore(self, target):
@@ -137,8 +138,11 @@ class Ship:
                 for res, amt in self.cargo.items():
                     self.home.resources[res] = self.home.resources.get(res, 0) + amt
                 self.cargo = {r: 0.0 for r in RESOURCE_NAMES}
+                prev_target = self.target_planet
                 self.state = MISSION_IDLE
                 self.target_planet = None
+                if self.repeat and getattr(self, "_mission_type", None) == "mine" and prev_target:
+                    self.send_mine(prev_target)
 
     def _move_toward(self, tx, ty, dt):
         dx = tx - self.x
