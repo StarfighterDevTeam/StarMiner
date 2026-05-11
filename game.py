@@ -326,9 +326,9 @@ class Game:
             color = RESOURCE_COLORS.get(res, WHITE)
             near_cap = val >= cap * 0.95
             t = font.render(f"{res[:3].upper()}:{int(val)}/{int(cap)}", True, RED if near_cap else color)
-            self.screen.blit(t, (x, y))
+            # self.screen.blit(t, (x, y))
             x += t.get_width() + 12
 
         hint = "WASD/Arrows:scroll  |  Scroll:zoom  |  RMB drag:pan  |  Click:select  |  ESC:fermer"
         ht = font.render(hint, True, GRAY)
-        self.screen.blit(ht, (SCREEN_W - ht.get_width() - 8, SCREEN_H - 40))
+        self.screen.blit(ht, (8, SCREEN_H - 40))
