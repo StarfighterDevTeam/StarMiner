@@ -24,11 +24,12 @@ SHIP_IMG_PATHS = {
 }
 SHIP_DRAW_SIZE = 28
 
-MISSION_IDLE    = "idle"
-MISSION_TRAVEL  = "travel"
-MISSION_EXPLORE = "exploring"
-MISSION_MINE    = "mining"
-MISSION_RETURN  = "returning"
+MISSION_IDLE     = "idle"
+MISSION_TRAVEL   = "travel"
+MISSION_EXPLORE  = "exploring"
+MISSION_DISCOVER = "discovering"
+MISSION_MINE     = "mining"
+MISSION_RETURN   = "returning"
 
 
 class Ship:
@@ -51,7 +52,9 @@ class Ship:
         self.target_planet = None
         self.cargo = {r: 0.0 for r in RESOURCE_NAMES}
         self._mine_timer = 0.0
-        self._mine_duration = 8.0   # seconds to mine at destination
+        self._mine_duration = 8.0
+        self._discover_timer = 0.0
+        self._discover_duration = 10.0
         self._destroyed = False
 
     # ── missions ─────────────────────────────────────────────────
@@ -79,7 +82,7 @@ class Ship:
         return True
 
     def cancel_mission(self):
-        if self.state in (MISSION_TRAVEL, MISSION_MINE):
+        if self.state in (MISSION_TRAVEL, MISSION_MINE, MISSION_DISCOVER):
             self.state = MISSION_RETURN
             return True
         return False
@@ -96,8 +99,8 @@ class Ship:
                 self.x = self.target_planet.x
                 self.y = self.target_planet.y
                 if self._mission_type == "explore":
-                    self.target_planet.explored = True
-                    self.state = MISSION_RETURN
+                    self.state = MISSION_DISCOVER
+                    self._discover_timer = self._discover_duration
                 elif self._mission_type == "mine":
                     self.state = MISSION_MINE
                     self._mine_timer = self._mine_duration
@@ -107,6 +110,12 @@ class Ship:
                         self.home.ships.remove(self)
                     self._destroyed = True
                     return
+
+        elif self.state == MISSION_DISCOVER:
+            self._discover_timer -= dt
+            if self._discover_timer <= 0:
+                self.target_planet.explored = True
+                self.state = MISSION_RETURN
 
         elif self.state == MISSION_MINE:
             self._mine_timer -= dt
@@ -175,11 +184,12 @@ class Ship:
             dot_color = GOLD
         else:
             dot_color = {
-                MISSION_IDLE:    GRAY,
-                MISSION_TRAVEL:  CYAN,
-                MISSION_MINE:    ORANGE,
-                MISSION_RETURN:  GREEN,
-                MISSION_EXPLORE: CYAN,
+                MISSION_IDLE:     GRAY,
+                MISSION_TRAVEL:   CYAN,
+                MISSION_DISCOVER: GOLD,
+                MISSION_MINE:     ORANGE,
+                MISSION_RETURN:   GREEN,
+                MISSION_EXPLORE:  CYAN,
             }.get(self.state, WHITE)
         pygame.draw.circle(surface, dot_color, (sx + draw_size // 2, sy - draw_size // 2), max(3, int(4 * camera.zoom)))
 
@@ -199,7 +209,7 @@ class Ship:
             eta = dist / self.speed
             label = f"{int(eta//60)}m {int(eta%60)}s" if eta >= 60 else f"{eta:.0f}s"
             try:
-                font = pygame.font.SysFont("consolas", max(9, int(10 * camera.zoom)))
+                font = pygame.font.SysFont("consolas", max(12, int(10 * camera.zoom)))
             except Exception:
                 font = pygame.font.Font(None, max(11, int(12 * camera.zoom)))
             txt = font.render(label, True, CYAN)

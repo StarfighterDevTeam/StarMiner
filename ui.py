@@ -538,8 +538,8 @@ class PlanetUI:
             surface.blit(nt, (pr.x + 12, ry + 6))
 
             state_color = {
-                "idle": GRAY, "travel": CYAN, "mining": ORANGE,
-                "returning": GREEN, "exploring": CYAN
+                "idle": GRAY, "travel": CYAN, "discovering": GOLD,
+                "mining": ORANGE, "returning": GREEN, "exploring": CYAN
             }.get(ship.state, WHITE)
             st = sf.render(f"State: {ship.state}", True, state_color)
             surface.blit(st, (pr.x + 12, ry + 22))
@@ -736,18 +736,20 @@ class ShipUI:
         y += 8
 
         # ── Mission status ────────────────────────────────────────
-        from ship import MISSION_IDLE, MISSION_TRAVEL, MISSION_MINE, MISSION_RETURN
+        from ship import MISSION_IDLE, MISSION_TRAVEL, MISSION_DISCOVER, MISSION_MINE, MISSION_RETURN
         STATE_LABELS = {
-            MISSION_IDLE:   "En attente",
-            MISSION_TRAVEL: "En transit",
-            MISSION_MINE:   "En extraction",
-            MISSION_RETURN: "Retour",
+            MISSION_IDLE:     "En attente",
+            MISSION_TRAVEL:   "En transit",
+            MISSION_DISCOVER: "En découverte",
+            MISSION_MINE:     "En extraction",
+            MISSION_RETURN:   "Retour",
         }
         STATE_COLORS = {
-            MISSION_IDLE:   GRAY,
-            MISSION_TRAVEL: CYAN,
-            MISSION_MINE:   ORANGE,
-            MISSION_RETURN: GREEN,
+            MISSION_IDLE:     GRAY,
+            MISSION_TRAVEL:   CYAN,
+            MISSION_DISCOVER: GOLD,
+            MISSION_MINE:     ORANGE,
+            MISSION_RETURN:   GREEN,
         }
         sf = _font(12)
         state_label = STATE_LABELS.get(s.state, s.state)
@@ -769,7 +771,7 @@ class ShipUI:
         surface.blit(dep_t, (pr.x + 12, y))
         y += 15
 
-        if s.state in (MISSION_TRAVEL, MISSION_MINE) and s.target_planet:
+        if s.state in (MISSION_TRAVEL, MISSION_DISCOVER, MISSION_MINE) and s.target_planet:
             dest_name = s.target_planet.name
         elif s.state == MISSION_RETURN:
             dest_name = s.home.name
@@ -818,6 +820,25 @@ class ShipUI:
             pygame.draw.rect(surface, (50, 65, 100), (bar_x, bar_y, bar_w, bar_h), 1, border_radius=3)
             y += 12
 
+        # Discovery timer
+        if s.state == MISSION_DISCOVER:
+            remaining = max(0, getattr(s, "_discover_timer", 0))
+            total = max(1, getattr(s, "_discover_duration", 1))
+            dt_t = df.render(f"Découverte  :  {remaining:.0f}s restantes", True, GOLD)
+            surface.blit(dt_t, (pr.x + 12, y))
+            y += 15
+            progress = max(0.0, min(1.0, 1.0 - remaining / total))
+            bar_x, bar_y = pr.x + 12, y
+            bar_w, bar_h = pr.w - 24, 7
+            pygame.draw.rect(surface, (22, 28, 48), (bar_x, bar_y, bar_w, bar_h), border_radius=3)
+            fw = int(bar_w * progress)
+            if fw > 0:
+                pygame.draw.rect(surface, GOLD, (bar_x, bar_y, fw, bar_h), border_radius=3)
+                highlight = tuple(min(255, c + 60) for c in GOLD)
+                pygame.draw.rect(surface, highlight, (bar_x, bar_y, fw, 2), border_radius=3)
+            pygame.draw.rect(surface, (50, 65, 100), (bar_x, bar_y, bar_w, bar_h), 1, border_radius=3)
+            y += 12
+
         # Mining timer
         if s.state == MISSION_MINE:
             remaining = max(0, getattr(s, "_mine_timer", 0))
@@ -826,7 +847,7 @@ class ShipUI:
             y += 15
 
         # Cancel mission button
-        if s.state in (MISSION_TRAVEL, MISSION_MINE):
+        if s.state in (MISSION_TRAVEL, MISSION_DISCOVER, MISSION_MINE):
             cancel_btn = Button((pr.x + pr.w // 2 - 70, y + 2, 140, 20),
                                 "Annuler mission", tooltip="cancel_mission")
             cancel_btn.handle_mouse(pygame.mouse.get_pos())
