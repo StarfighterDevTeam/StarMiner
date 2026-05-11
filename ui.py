@@ -100,11 +100,12 @@ class PlanetUI:
         self._msg_timer = 0.0
         self._build_scroll = 0
         self._fleet_scroll = 0
+        self._planet_tabs: dict = {}  # planet.id → last active tab
 
     def open(self, planet):
         self.planet = planet
         self.visible = True
-        self._tab = "buildings"
+        self._tab = self._planet_tabs.get(planet.id, "buildings")
         self._mission_mode = None
         self._build_scroll = 0
         self._fleet_scroll = 0
@@ -123,6 +124,11 @@ class PlanetUI:
     def show_message(self, msg):
         self._message = msg
         self._msg_timer = 3.0
+
+    def switch_tab(self, tab):
+        self._tab = tab
+        if self.planet:
+            self._planet_tabs[self.planet.id] = tab
 
     # ── update ───────────────────────────────────────────────────
     def update(self, dt):
@@ -154,6 +160,8 @@ class PlanetUI:
         for tb in self._tab_btns:
             if tb.is_clicked(pos, event):
                 self._tab = tb.text.lower()
+                if self.planet:
+                    self._planet_tabs[self.planet.id] = self._tab
                 return True
 
         # Action buttons
@@ -379,8 +387,8 @@ class PlanetUI:
                 tr = pygame.Rect(pr.x + i * tab_w, y, tab_w, 24)
                 pygame.draw.rect(surface, color, tr)
                 pygame.draw.rect(surface, UI_BORDER, tr, 1)
-                tf = _font(12)
-                tt = tf.render(tab, True, WHITE)
+                tf = _font(11)
+                tt = tf.render(f"{tab} (F{i+1})", True, WHITE)
                 surface.blit(tt, tt.get_rect(center=tr.center))
                 tb = Button(tr, tab.lower(), tooltip="")
                 tb._hovered = False

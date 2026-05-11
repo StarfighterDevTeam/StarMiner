@@ -105,6 +105,12 @@ class Game:
                     self._running = False
                 return
 
+            # F1/F2/F3: switch planet UI tab
+            if event.type == pygame.KEYDOWN and event.key in (pygame.K_F1, pygame.K_F2, pygame.K_F3):
+                if self.ui.visible:
+                    self.ui.switch_tab(("buildings", "ships", "fleet")[event.key - pygame.K_F1])
+                continue
+
             # F5 debug: complete all production on selected planet
             if event.type == pygame.KEYDOWN and event.key == pygame.K_F5:
                 if self.ui.visible and self.ui.planet:
