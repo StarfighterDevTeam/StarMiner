@@ -193,11 +193,11 @@ class PlanetUI:
         # Mission mode: next click on a planet selects target
         if self._mission_mode:
             if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
-                # Check if click is inside panel → cancel
                 if self.panel_rect.collidepoint(pos):
                     self._mission_mode = None
-                    return True
-                return False   # let game handle planet click for mission
+                    # fall through: let button handlers process the click
+                else:
+                    return False   # let game handle planet click for mission
 
         if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
             if not self.panel_rect.collidepoint(pos):
@@ -508,6 +508,21 @@ class PlanetUI:
             mt = mf.render(">> Click a planet to set mission target <<", True, ORANGE)
             surface.blit(mt, (SCREEN_W // 2 - mt.get_width() // 2, 20))
 
+    def _mission_ok(self, mtype, ship, planet, highways=None):
+        has_highway = (highways is not None and
+                       frozenset({ship.home.id, planet.id}) in highways)
+        if planet is ship.home:
+            return False
+        if mtype == "explore":
+            return not planet.explored
+        if mtype == "mine":
+            return planet.explored
+        if mtype == "colonize":
+            return planet.explored and planet.habitable and not planet.colonized
+        if mtype == "highway":
+            return planet.colonized and not has_highway
+        return True
+
     def draw_mission_hover(self, surface, planet, camera, highways=None):
         if not self._mission_mode:
             return
@@ -542,8 +557,7 @@ class PlanetUI:
             error = (f"{planet.name} déjà explorée", ORANGE)
         elif mtype == "mine" and not planet.explored:
             error = ("Planète non explorée", RED)
-        elif mtype == "mine" and not planet.colonized:
-            error = ("Planète non colonisée", RED)
+
         elif mtype == "colonize" and not planet.explored:
             error = ("Planète non explorée", RED)
         elif mtype == "colonize" and not planet.habitable:

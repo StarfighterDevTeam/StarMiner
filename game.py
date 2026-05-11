@@ -1,11 +1,31 @@
 import pygame
 import random
+import math
 from constants import *
 from camera import Camera
 from space_map import SpaceMap
 from planet import generate_planets
 from ship import Ship
 from ui import PlanetUI, ShipUI, ColonyBar
+
+def _draw_dashed_line(surface, color, start, end, dash=8, gap=5, width=1):
+    x1, y1 = start
+    x2, y2 = end
+    dx, dy = x2 - x1, y2 - y1
+    length = math.hypot(dx, dy)
+    if length < 1:
+        return
+    ux, uy = dx / length, dy / length
+    pos, drawing = 0.0, True
+    while pos < length:
+        seg = dash if drawing else gap
+        npos = min(pos + seg, length)
+        if drawing:
+            pygame.draw.line(surface, color,
+                             (int(x1 + ux * pos),  int(y1 + uy * pos)),
+                             (int(x1 + ux * npos), int(y1 + uy * npos)), width)
+        pos, drawing = npos, not drawing
+
 
 class Game:
     def __init__(self, screen):
@@ -268,9 +288,34 @@ class Game:
         self.colony_bar.draw(self.screen, self.planets,
                              selected_planet=self.ui.planet if self.ui.visible else None,
                              mission_mode=bool(self.ui._mission_mode))
+        self._draw_mission_dash()
         self._draw_patrol_overlay()
         self._draw_hud()
         pygame.display.flip()
+
+    def _draw_mission_dash(self):
+        mx, my = pygame.mouse.get_pos()
+
+        if self.ui._mission_mode and self._hovered_planet:
+            mtype, ship = self.ui._mission_mode
+            src_x = ship.home.x if ship.is_docked else ship.x
+            src_y = ship.home.y if ship.is_docked else ship.y
+            src = self.camera.world_to_screen(src_x, src_y)
+            dst = self.camera.world_to_screen(self._hovered_planet.x, self._hovered_planet.y)
+            ok = self.ui._mission_ok(mtype, ship, self._hovered_planet, self.highways)
+            color = (180, 180, 180) if ok else (220, 70, 70)
+            _draw_dashed_line(self.screen, color, src, dst)
+
+        if self._patrol_mode_ship:
+            ship = self._patrol_mode_ship
+            src_x = ship.home.x if ship.is_docked else ship.x
+            src_y = ship.home.y if ship.is_docked else ship.y
+            src = self.camera.world_to_screen(src_x, src_y)
+            if self._hovered_planet:
+                dst = self.camera.world_to_screen(self._hovered_planet.x, self._hovered_planet.y)
+            else:
+                dst = (mx, my)
+            _draw_dashed_line(self.screen, (180, 180, 180), src, dst)
 
     def _draw_patrol_overlay(self):
         if not self._patrol_mode_ship:
