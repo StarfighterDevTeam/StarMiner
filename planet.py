@@ -285,7 +285,6 @@ class Planet:
         half = max(10, int(self.size * camera.zoom)) // 2
         return (mx - sx) ** 2 + (my - sy) ** 2 <= (half + 8) ** 2
 
-
 def generate_planets(num=NUM_PLANETS):
     rng = random.Random(7)
     types = ["rocky", "gas", "asteroid"]

@@ -96,19 +96,20 @@ BUILDING_PLANET_TYPES = {
 }
 
 # Ships — shipyard_level = niveau minimal du chantier naval requis
+# fuel_type: ressource consommée en vol  |  fuel_rate: unités/px parcouru
 SHIP_DEFS = {
-    "Probe":      {"cost": {"iron": 50,  "gold": 10},                        "time": 15, "speed": 180, "capacity": 0,    "missions": ["explore"],   "shipyard_level": 1},
-    "Miner":      {"cost": {"iron": 120, "gold": 20,  "oil": 10},            "time": 30, "speed": 100, "capacity": 200,  "missions": ["mine"],      "shipyard_level": 1},
-    "Colonizer":  {"cost": {"iron": 300, "gold": 80,  "silver": 50},         "time": 60, "speed": 80,  "capacity": 0,    "missions": ["colonize"],  "shipyard_level": 1},
-    "Scout":      {"cost": {"iron": 80,  "gold": 40},                        "time": 20, "speed": 300, "capacity": 0,    "missions": ["explore"],   "shipyard_level": 3},
-    "Freighter":  {"cost": {"iron": 250, "gold": 60,  "oil": 30},            "time": 60, "speed": 60,  "capacity": 800,  "missions": ["mine"],      "shipyard_level": 5},
-    "Constructor":{"cost": {"iron": 400, "gold": 100, "silver": 80},         "time": 90,  "speed": 70,  "capacity": 0, "missions": ["highway"],   "shipyard_level": 1},
+    "Probe":      {"cost": {"iron": 50,  "gold": 10},                        "time": 15, "speed": 180, "capacity": 0,    "missions": ["explore"],   "shipyard_level": 1, "fuel_type": "oil",       "fuel_rate": 0.003},
+    "Miner":      {"cost": {"iron": 120, "gold": 20,  "oil": 10},            "time": 30, "speed": 100, "capacity": 200,  "missions": ["mine"],      "shipyard_level": 1, "fuel_type": "oil",       "fuel_rate": 0.005},
+    "Colonizer":  {"cost": {"iron": 300, "gold": 80,  "silver": 50},         "time": 60, "speed": 80,  "capacity": 0,    "missions": ["colonize"],  "shipyard_level": 1, "fuel_type": "oil",       "fuel_rate": 0.006},
+    "Scout":      {"cost": {"iron": 80,  "gold": 40},                        "time": 20, "speed": 300, "capacity": 0,    "missions": ["explore"],   "shipyard_level": 3, "fuel_type": "deuterium", "fuel_rate": 0.002},
+    "Freighter":  {"cost": {"iron": 250, "gold": 60,  "oil": 30},            "time": 60, "speed": 60,  "capacity": 800,  "missions": ["mine"],      "shipyard_level": 5, "fuel_type": "oil",       "fuel_rate": 0.008},
+    "Constructor":{"cost": {"iron": 400, "gold": 100, "silver": 80},         "time": 90,  "speed": 70,  "capacity": 0, "missions": ["highway"],   "shipyard_level": 1, "fuel_type": "oil",       "fuel_rate": 0.005},
     "Fighter":    {"cost": {"iron": 150, "gold": 60},                         "time": 40,  "speed": 120, "capacity": 0, "missions": ["patrol"],    "shipyard_level": 1,
-                   "hp": 60,  "damage": 15, "fire_range": 350, "fire_rate": 1.2},
+                   "hp": 60,  "damage": 15, "fire_range": 350, "fire_rate": 1.2, "fuel_type": "oil",       "fuel_rate": 0.004},
     "Destroyer":  {"cost": {"iron": 350, "gold": 120, "silver": 60},          "time": 80,  "speed": 100, "capacity": 0, "missions": ["patrol"],    "shipyard_level": 2,
-                   "hp": 200, "damage": 35, "fire_range": 450, "fire_rate": 0.6},
+                   "hp": 200, "damage": 35, "fire_range": 450, "fire_rate": 0.6, "fuel_type": "oil",       "fuel_rate": 0.006},
     "Battleship": {"cost": {"iron": 800, "gold": 300, "silver": 150, "oil": 50}, "time": 180, "speed": 80, "capacity": 0, "missions": ["patrol"],  "shipyard_level": 3,
-                   "hp": 600, "damage": 80, "fire_range": 550, "fire_rate": 0.3},
+                   "hp": 600, "damage": 80, "fire_range": 550, "fire_rate": 0.3, "fuel_type": "deuterium", "fuel_rate": 0.004},
     }
 
 # Starting resources for player's first planet

@@ -54,6 +54,8 @@ class Game:
         # Enemy ships
         self.enemy_ships = []
         self._spawn_initial_enemies()
+        self._hud_msg = ""
+        self._hud_msg_timer = 0.0
 
     # ── enemy management ─────────────────────────────────────────
     def _spawn_initial_enemies(self):
@@ -168,7 +170,11 @@ class Game:
                             wx, wy = dock_planet.x, dock_planet.y
                         ship = self._patrol_mode_ship
                         self._patrol_mode_ship = None
-                        ship.send_patrol(wx, wy, dock_planet=dock_planet)
+                        ok = ship.send_patrol(wx, wy, dock_planet=dock_planet)
+                        if not ok:
+                            self._patrol_mode_ship = ship
+                            self._hud_msg = f"Carburant insuffisant ({ship.fuel_type})"
+                            self._hud_msg_timer = 3.0
                         continue
                 else:
                     self.camera.handle_event(event)
@@ -235,6 +241,8 @@ class Game:
     def _update(self, dt):
         self.space_map.update(dt)
         self.ui.update(dt)
+        if self._hud_msg_timer > 0:
+            self._hud_msg_timer -= dt
 
         all_ships = self.ships + self.enemy_ships
         for p in self.planets:
@@ -312,10 +320,13 @@ class Game:
             src_y = ship.home.y if ship.is_docked else ship.y
             src = self.camera.world_to_screen(src_x, src_y)
             if self._hovered_planet:
-                dst = self.camera.world_to_screen(self._hovered_planet.x, self._hovered_planet.y)
+                wx_dst, wy_dst = self._hovered_planet.x, self._hovered_planet.y
+                dst = self.camera.world_to_screen(wx_dst, wy_dst)
             else:
+                wx_dst, wy_dst = self.camera.screen_to_world(mx, my)
                 dst = (mx, my)
-            _draw_dashed_line(self.screen, (180, 180, 180), src, dst)
+            color = (180, 180, 180) if ship.has_fuel_for_patrol(wx_dst, wy_dst) else (220, 70, 70)
+            _draw_dashed_line(self.screen, color, src, dst)
 
     def _draw_patrol_overlay(self):
         if not self._patrol_mode_ship:
@@ -377,3 +388,11 @@ class Game:
         hint = "WASD/Arrows:scroll  |  Scroll:zoom  |  RMB drag:pan  |  Click:select  |  ESC:fermer"
         ht = font.render(hint, True, GRAY)
         self.screen.blit(ht, (8, SCREEN_H - 40))
+
+        if self._hud_msg_timer > 0 and self._hud_msg:
+            try:
+                mf = pygame.font.SysFont("consolas", 14)
+            except Exception:
+                mf = pygame.font.Font(None, 16)
+            mt = mf.render(self._hud_msg, True, (220, 80, 80))
+            self.screen.blit(mt, (SCREEN_W // 2 - mt.get_width() // 2, 48))

@@ -77,9 +77,42 @@ class Ship:
         self._dock_planet = None      # colonized planet to dock at on arrival
         self._pre_combat_dest = None  # patrol dest saved before entering combat
 
+        # Fuel attributes
+        self.fuel_type      = defn.get("fuel_type", "oil")
+        self.fuel_rate      = defn.get("fuel_rate", 0.005)
+        self.fuel_remaining = 0.0
+
+    # ── fuel helpers ─────────────────────────────────────────────
+    def fuel_cost(self, mtype, target):
+        dist = math.hypot(self.home.x - target.x, self.home.y - target.y)
+        return dist * self.fuel_rate * (2.0 if mtype == "mine" else 1.0)
+
+    def has_fuel_for(self, mtype, target):
+        return self.home.resources.get(self.fuel_type, 0) >= self.fuel_cost(mtype, target)
+
+    def fuel_cost_patrol(self, wx, wy):
+        return math.hypot(self.x - wx, self.y - wy) * self.fuel_rate
+
+    def has_fuel_for_patrol(self, wx, wy):
+        available = self.home.resources.get(self.fuel_type, 0) + self.fuel_remaining
+        return available >= self.fuel_cost_patrol(wx, wy)
+
+    def _load_fuel(self, amount):
+        self.home.resources[self.fuel_type] -= amount
+        self.fuel_remaining = amount
+
+    def _refund_fuel(self):
+        if self.fuel_remaining > 0:
+            self.home.resources[self.fuel_type] = (
+                self.home.resources.get(self.fuel_type, 0) + self.fuel_remaining)
+        self.fuel_remaining = 0.0
+
     # ── missions ─────────────────────────────────────────────────
     def send_explore(self, target):
         if self.state != MISSION_IDLE: return False
+        fuel = self.fuel_cost("explore", target)
+        if self.home.resources.get(self.fuel_type, 0) < fuel: return False
+        self._load_fuel(fuel)
         self.target_planet = target
         self.state = MISSION_TRAVEL
         self._mission_type = "explore"
@@ -88,6 +121,9 @@ class Ship:
     def send_mine(self, target):
         if self.state != MISSION_IDLE: return False
         if self.type != "Miner": return False
+        fuel = self.fuel_cost("mine", target)
+        if self.home.resources.get(self.fuel_type, 0) < fuel: return False
+        self._load_fuel(fuel)
         self.target_planet = target
         self.state = MISSION_TRAVEL
         self._mission_type = "mine"
@@ -96,6 +132,9 @@ class Ship:
     def send_colonize(self, target):
         if self.state != MISSION_IDLE: return False
         if self.type != "Colonizer": return False
+        fuel = self.fuel_cost("colonize", target)
+        if self.home.resources.get(self.fuel_type, 0) < fuel: return False
+        self._load_fuel(fuel)
         self.target_planet = target
         self.state = MISSION_TRAVEL
         self._mission_type = "colonize"
@@ -104,6 +143,9 @@ class Ship:
     def send_highway(self, target):
         if self.state != MISSION_IDLE: return False
         if self.type != "Constructor": return False
+        fuel = self.fuel_cost("highway", target)
+        if self.home.resources.get(self.fuel_type, 0) < fuel: return False
+        self._load_fuel(fuel)
         self.target_planet = target
         self.state = MISSION_TRAVEL
         self._mission_type = "highway"
@@ -111,6 +153,13 @@ class Ship:
 
     def send_patrol(self, wx, wy, dock_planet=None):
         if self.state not in (MISSION_IDLE, MISSION_PATROL, MISSION_COMBAT): return False
+        fuel_needed = self.fuel_cost_patrol(wx, wy)
+        # current fuel_remaining is available to fund the new leg
+        available = self.home.resources.get(self.fuel_type, 0) + self.fuel_remaining
+        if available < fuel_needed: return False
+        net = fuel_needed - self.fuel_remaining
+        self.home.resources[self.fuel_type] = self.home.resources.get(self.fuel_type, 0) - net
+        self.fuel_remaining = fuel_needed
         self._patrol_dest = (wx, wy)
         self._dock_planet = dock_planet
         self._pre_combat_dest = None
@@ -217,6 +266,7 @@ class Ship:
             if dist < 40:
                 self.x = self.home.x
                 self.y = self.home.y
+                self._refund_fuel()
                 # Unload cargo
                 for res, amt in self.cargo.items():
                     self.home.resources[res] = self.home.resources.get(res, 0) + amt
@@ -249,6 +299,7 @@ class Ship:
                     self.home = self._dock_planet
                     if self not in self.home.ships:
                         self.home.ships.append(self)
+                self._refund_fuel()
                 self._patrol_dest = None
                 self._dock_planet = None
                 self.state = MISSION_IDLE
@@ -295,6 +346,7 @@ class Ship:
         step = min((speed if speed is not None else self.speed) * dt, dist)
         self.x += (dx / dist) * step
         self.y += (dy / dist) * step
+        self.fuel_remaining = max(0.0, self.fuel_remaining - step * self.fuel_rate)
 
     @property
     def is_docked(self):

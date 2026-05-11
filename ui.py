@@ -514,14 +514,14 @@ class PlanetUI:
         if planet is ship.home:
             return False
         if mtype == "explore":
-            return not planet.explored
-        if mtype == "mine":
-            return planet.explored
-        if mtype == "colonize":
-            return planet.explored and planet.habitable and not planet.colonized
-        if mtype == "highway":
-            return planet.colonized and not has_highway
-        return True
+            if planet.explored: return False
+        elif mtype == "mine":
+            if not planet.explored: return False
+        elif mtype == "colonize":
+            if not (planet.explored and planet.habitable and not planet.colonized): return False
+        elif mtype == "highway":
+            if not planet.colonized or has_highway: return False
+        return ship.has_fuel_for(mtype, planet)
 
     def draw_mission_hover(self, surface, planet, camera, highways=None):
         if not self._mission_mode:
@@ -569,10 +569,20 @@ class PlanetUI:
         elif mtype == "highway" and has_highway:
             error = ("Autoroute déjà existante", ORANGE)
 
+        # Fuel check
+        fuel = ship.fuel_cost(mtype, planet)
+        fuel_avail = ship.home.resources.get(ship.fuel_type, 0)
+        fuel_ok = fuel_avail >= fuel
+        if error is None and not fuel_ok:
+            error = (f"{ship.fuel_type.capitalize()} insuffisant"
+                     f" ({fuel:.0f} requis, {fuel_avail:.0f} dispo)", RED)
+
         # Habitability hint appended to valid targets when relevant
         hab_hint = None
         if error is None and planet.explored and not planet.habitable and mtype != "colonize":
             hab_hint = ("Non colonisable (inhabitable)", (100, 80, 60))
+
+        fuel_line = (f"Carburant : {fuel:.0f} {ship.fuel_type}", GREEN if fuel_ok else RED)
 
         if error:
             lines.append(error)
@@ -580,6 +590,7 @@ class PlanetUI:
             lines.append((f"Aller   : {_fmt_time(travel_to)}", UI_TEXT))
             lines.append((f"Total   : {_fmt_time(total)}", CYAN))
             lines.append(("→ +50% vitesse sur ce trajet", GOLD))
+            lines.append(fuel_line)
         else:
             if has_highway:
                 lines.append(("★ Autoroute active (+50%)", GOLD))
@@ -591,6 +602,7 @@ class PlanetUI:
             if not one_way:
                 lines.append((f"Retour  : {_fmt_time(travel_back)}", UI_TEXT))
             lines.append((f"Total   : {_fmt_time(total)}", CYAN))
+            lines.append(fuel_line)
             if hab_hint:
                 lines.append(hab_hint)
 
@@ -1243,7 +1255,10 @@ class ShipUI:
             h += 8 + 14 + 12 + 14  # sep + HP bar row + hp text + combat stats
 
         h += 8   # separator before stats
-        h += 13  # stats line
+        h += 13  # speed stat
+        h += 13  # fuel stat
+        if s.fuel_remaining > 0:
+            h += 13  # fuel remaining (in flight)
         h += 8   # bottom pad
         return h
 
@@ -1525,3 +1540,16 @@ class ShipUI:
         stats_str = f"Vitesse : {s.speed} px/s"
         speed_t = _font(10).render(stats_str, True, (80, 95, 120))
         surface.blit(speed_t, (pr.x + 12, y))
+        y += 13
+        fuel_rate_str = f"Carburant : {s.fuel_rate * 1000:.1f} {s.fuel_type}/1000u"
+        fuel_rate_t = _font(10).render(fuel_rate_str, True, (80, 95, 120))
+        surface.blit(fuel_rate_t, (pr.x + 12, y))
+        y += 13
+        if s.fuel_remaining > 0:
+            fav = s.home.resources.get(s.fuel_type, 0)
+            low = s.fuel_remaining < 10 or s.fuel_remaining < fav * 0.15
+            fc = ORANGE if low else CYAN
+            moving = s.state in (MISSION_TRAVEL, MISSION_RETURN, MISSION_PATROL)
+            label = "En transit" if moving else "Réservé  "
+            rem_t = _font(10).render(f"{label} : {s.fuel_remaining:.0f} {s.fuel_type}", True, fc)
+            surface.blit(rem_t, (pr.x + 12, y))
