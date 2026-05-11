@@ -8,6 +8,10 @@ def _font(size):
     except Exception:
         return pygame.font.Font(None, size + 4)
 
+def _fmt_time(secs):
+    s = int(secs)
+    return f"{s // 60}m{s % 60:02d}s" if s >= 60 else f"{s}s"
+
 _BTN_ACTIVE     = (160, 90, 10)
 _BTN_ACTIVE_HOV = (200, 120, 20)
 _BTN_ACTIVE_TXT = (255, 210, 120)
@@ -348,6 +352,55 @@ class PlanetUI:
             mt = mf.render(">> Click a planet to set mission target <<", True, ORANGE)
             surface.blit(mt, (SCREEN_W // 2 - mt.get_width() // 2, 20))
 
+    def draw_mission_hover(self, surface, planet, camera):
+        if not self._mission_mode:
+            return
+        mtype, ship = self._mission_mode
+
+        dist_to   = math.hypot(ship.x - planet.x, ship.y - planet.y)
+        dist_back = math.hypot(planet.x - ship.home.x, planet.y - ship.home.y)
+        travel_to   = dist_to   / max(ship.speed, 1)
+        travel_back = dist_back / max(ship.speed, 1)
+
+        if mtype == "explore":
+            mission_dur = getattr(ship, "_discover_duration", 10.0)
+        elif mtype == "mine":
+            mission_dur = getattr(ship, "_mine_duration", 8.0)
+        else:
+            mission_dur = 0.0
+
+        one_way = mtype == "colonize"
+        total = travel_to + mission_dur + (0 if one_way else travel_back)
+
+        lines = [(f"Aller   : {_fmt_time(travel_to)}", UI_TEXT)]
+        if mtype == "explore":
+            lines.append((f"Découv. : {_fmt_time(mission_dur)}", GOLD))
+        elif mtype == "mine":
+            lines.append((f"Extract.: {_fmt_time(mission_dur)}", ORANGE))
+        if not one_way:
+            lines.append((f"Retour  : {_fmt_time(travel_back)}", UI_TEXT))
+        lines.append((f"Total   : {_fmt_time(total)}", CYAN))
+
+        f = _font(11)
+        line_h = 15
+        pad = 8
+        w = max(f.size(txt)[0] for txt, _ in lines) + pad * 2
+        h = len(lines) * line_h + pad
+
+        sx, sy = camera.world_to_screen(planet.x, planet.y)
+        tx = int(sx) + 18
+        ty = int(sy) - h // 2
+        tx = min(tx, int(SCREEN_W) - w - 4)
+        ty = max(ty, 4)
+        ty = min(ty, int(SCREEN_H) - h - 4)
+
+        panel = pygame.Surface((w, h), pygame.SRCALPHA)
+        panel.fill((8, 12, 28, 210))
+        pygame.draw.rect(panel, ORANGE, (0, 0, w, h), 1, border_radius=4)
+        surface.blit(panel, (tx, ty))
+        for i, (txt, color) in enumerate(lines):
+            surface.blit(f.render(txt, True, color), (tx + pad, ty + pad // 2 + i * line_h))
+
     def _draw_buildings(self, surface, pr, y, p):
         f = _font(12)
         sf = _font(10)
@@ -432,6 +485,8 @@ class PlanetUI:
                                  enabled=can, tooltip=f"build:{bname}")
                     btn.handle_mouse(mouse_pos); btn.draw(surface)
                     self._buttons.append(btn)
+                    t = _font(9).render(_fmt_time(defn["time"]), True, (80, 100, 130))
+                    surface.blit(t, (btn_x + (74 - t.get_width()) // 2, ry + 27))
                 elif in_build_queue:
                     surface.blit(sf.render("En constr.", True, ORANGE), (btn_x + 2, ry + 10))
                 elif is_built and b.level < LEVEL_MAX and not in_upgrade_queue:
@@ -440,6 +495,8 @@ class PlanetUI:
                                  enabled=can, tooltip=f"upgrade:{bname}")
                     btn.handle_mouse(mouse_pos); btn.draw(surface)
                     self._buttons.append(btn)
+                    t = _font(9).render(_fmt_time(b.upgrade_time()), True, (80, 100, 130))
+                    surface.blit(t, (btn_x + (74 - t.get_width()) // 2, ry + 27))
                 elif in_upgrade_queue:
                     surface.blit(sf.render("Upg. cours", True, ORANGE), (btn_x + 2, ry + 10))
                 elif is_built and b.level >= LEVEL_MAX:
@@ -519,6 +576,8 @@ class PlanetUI:
                              "Construire", enabled=can, tooltip=f"ship:{stype}")
                 btn.handle_mouse(mouse_pos); btn.draw(surface)
                 self._buttons.append(btn)
+                t = _font(9).render(_fmt_time(actual_time), True, (80, 100, 130))
+                surface.blit(t, (pr.x + pr.w - 82 + (72 - t.get_width()) // 2, ry + 39))
             else:
                 lock_t = sf.render(f"[Chantier Niv.{req_lvl}]", True, (55, 60, 75))
                 surface.blit(lock_t, (pr.x + pr.w - 100, ry + 20))

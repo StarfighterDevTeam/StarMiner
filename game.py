@@ -151,6 +151,8 @@ class Game:
         if self._hovered_ship:
             self._hovered_ship.draw_hover(self.screen, self.camera)
         self.ui.draw(self.screen, self.planets)
+        if self._hovered_planet:
+            self.ui.draw_mission_hover(self.screen, self._hovered_planet, self.camera)
         self.ship_ui.draw(self.screen)
         self._draw_hud()
         pygame.display.flip()
