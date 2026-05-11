@@ -30,6 +30,8 @@ MISSION_EXPLORE  = "exploring"
 MISSION_DISCOVER = "discovering"
 MISSION_MINE     = "mining"
 MISSION_RETURN   = "returning"
+MISSION_PATROL   = "patrol"
+MISSION_COMBAT   = "combat"
 
 
 class Ship:
@@ -58,6 +60,22 @@ class Ship:
         self._discover_duration = 10.0
         self._destroyed = False
         self.repeat = False
+
+        # Combat attributes
+        self.faction = "player"
+        self.hp = defn.get("hp", -1)
+        self.max_hp = defn.get("hp", -1)
+        self.damage = defn.get("damage", 0)
+        self.fire_range = defn.get("fire_range", 0)
+        self.fire_rate = defn.get("fire_rate", 0)
+        self._fire_cooldown = 0.0
+        self._target_enemy = None
+        self._shoot_flash = None      # (world_tx, world_ty, timer)
+
+        # Patrol attributes
+        self._patrol_dest = None      # (wx, wy) destination in world coords
+        self._dock_planet = None      # colonized planet to dock at on arrival
+        self._pre_combat_dest = None  # patrol dest saved before entering combat
 
     # ── missions ─────────────────────────────────────────────────
     def send_explore(self, target):
@@ -91,14 +109,56 @@ class Ship:
         self._mission_type = "highway"
         return True
 
+    def send_patrol(self, wx, wy, dock_planet=None):
+        if self.state != MISSION_IDLE: return False
+        self._patrol_dest = (wx, wy)
+        self._dock_planet = dock_planet
+        self.state = MISSION_PATROL
+        return True
+
     def cancel_mission(self):
         if self.state in (MISSION_TRAVEL, MISSION_MINE, MISSION_DISCOVER):
             self.state = MISSION_RETURN
             return True
+        if self.state in (MISSION_PATROL, MISSION_COMBAT):
+            self._patrol_dest = None
+            self._pre_combat_dest = None
+            self._target_enemy = None
+            self.state = MISSION_IDLE
+            return True
         return False
 
+    def _find_enemy(self, all_ships):
+        if not all_ships or self.fire_range <= 0:
+            return None
+        closest = None
+        closest_dist = self.fire_range
+        for s in all_ships:
+            if s is self or s.faction == self.faction or s._destroyed:
+                continue
+            dist = math.hypot(s.x - self.x, s.y - self.y)
+            if dist <= self.fire_range and dist < closest_dist:
+                closest = s
+                closest_dist = dist
+        return closest
+
+    def take_damage(self, amount):
+        if self.hp < 0:
+            return
+        self.hp = max(0, self.hp - amount)
+        if self.hp <= 0:
+            if self in self.home.ships:
+                self.home.ships.remove(self)
+            self._destroyed = True
+
     # ── update ───────────────────────────────────────────────────
-    def update(self, dt, planets, highways=None):
+    def update(self, dt, planets, highways=None, all_ships=None):
+        # Tick shoot flash regardless of state
+        if self._shoot_flash:
+            tx, ty, t = self._shoot_flash
+            t -= dt
+            self._shoot_flash = (tx, ty, t) if t > 0 else None
+
         if self.state == MISSION_IDLE:
             return
 
@@ -165,6 +225,55 @@ class Ship:
                 if self.repeat and getattr(self, "_mission_type", None) == "mine" and prev_target:
                     self.send_mine(prev_target)
 
+        elif self.state == MISSION_PATROL:
+            # Enter combat if enemy spotted
+            if self.fire_range > 0 and all_ships:
+                enemy = self._find_enemy(all_ships)
+                if enemy:
+                    self._pre_combat_dest = self._patrol_dest
+                    self._target_enemy = enemy
+                    self.state = MISSION_COMBAT
+                    return
+
+            wx, wy = self._patrol_dest
+            self._move_toward(wx, wy, dt, self.speed)
+            dist = math.hypot(self.x - wx, self.y - wy)
+            if dist < 5:
+                self.x = wx
+                self.y = wy
+                if self._dock_planet and self._dock_planet.colonized and self.faction == "player":
+                    if self in self.home.ships:
+                        self.home.ships.remove(self)
+                    self.home = self._dock_planet
+                    if self not in self.home.ships:
+                        self.home.ships.append(self)
+                self._patrol_dest = None
+                self._dock_planet = None
+                self.state = MISSION_IDLE
+
+        elif self.state == MISSION_COMBAT:
+            self._fire_cooldown = max(0.0, self._fire_cooldown - dt)
+            enemy = self._find_enemy(all_ships) if all_ships else None
+            if not enemy:
+                self._target_enemy = None
+                if self._pre_combat_dest:
+                    self._patrol_dest = self._pre_combat_dest
+                    self._pre_combat_dest = None
+                    self.state = MISSION_PATROL
+                else:
+                    self.state = MISSION_IDLE
+                return
+            self._target_enemy = enemy
+            dx = enemy.x - self.x
+            dy = enemy.y - self.y
+            d = math.hypot(dx, dy)
+            if d > 0:
+                self.angle = math.atan2(dy, dx)
+            if self._fire_cooldown <= 0 and self.damage > 0:
+                enemy.take_damage(self.damage)
+                self._shoot_flash = (enemy.x, enemy.y, 0.15)
+                self._fire_cooldown = 1.0 / max(self.fire_rate, 0.001)
+
     def _travel_speed(self, highways):
         if highways and self.target_planet:
             link = frozenset({self.home.id, self.target_planet.id})
@@ -187,7 +296,9 @@ class Ship:
 
     @property
     def is_docked(self):
-        return self.state == MISSION_IDLE
+        if self.state != MISSION_IDLE:
+            return False
+        return math.hypot(self.x - self.home.x, self.y - self.home.y) < 2
 
     # ── hit-testing ──────────────────────────────────────────────
     def is_clicked(self, mx, my, camera):
@@ -214,8 +325,14 @@ class Ship:
 
         # State dot
         mission_type = getattr(self, "_mission_type", None)
-        if self.state == MISSION_TRAVEL and mission_type == "colonize":
+        if self.faction == "enemy":
+            dot_color = RED
+        elif self.state == MISSION_TRAVEL and mission_type == "colonize":
             dot_color = GOLD
+        elif self.state == MISSION_COMBAT:
+            dot_color = RED
+        elif self.state == MISSION_PATROL:
+            dot_color = ORANGE
         else:
             dot_color = {
                 MISSION_IDLE:     GRAY,
@@ -227,6 +344,33 @@ class Ship:
             }.get(self.state, WHITE)
         pygame.draw.circle(surface, dot_color, (sx + draw_size // 2, sy - draw_size // 2), max(3, int(4 * camera.zoom)))
 
+        # Enemy faction ring
+        if self.faction == "enemy":
+            pygame.draw.circle(surface, RED, (sx, sy),
+                               max(8, draw_size // 2) + 3, 1)
+
+        # HP bar for combat ships
+        if self.hp >= 0 and self.max_hp > 0:
+            hp_ratio = max(0.0, self.hp / self.max_hp)
+            bar_w = max(20, draw_size)
+            bar_h = 4
+            bar_x = sx - bar_w // 2
+            bar_y = sy + draw_size // 2 + 6
+            pygame.draw.rect(surface, (40, 40, 40), (bar_x, bar_y, bar_w, bar_h))
+            fill_color = GREEN if hp_ratio > 0.5 else (ORANGE if hp_ratio > 0.25 else RED)
+            fw = int(bar_w * hp_ratio)
+            if fw > 0:
+                pygame.draw.rect(surface, fill_color, (bar_x, bar_y, fw, bar_h))
+            pygame.draw.rect(surface, (80, 80, 80), (bar_x, bar_y, bar_w, bar_h), 1)
+
+        # Laser flash on shoot
+        if self._shoot_flash:
+            tx, ty, t = self._shoot_flash
+            fx, fy = camera.world_to_screen(tx, ty)
+            ratio = min(1.0, t / 0.15)
+            r = int(255 * ratio)
+            pygame.draw.line(surface, (r, r // 4, r // 4), (sx, sy), (fx, fy), 2)
+
         # Travel line toward actual destination
         if self.state in (MISSION_TRAVEL, MISSION_MINE) and self.target_planet:
             tx, ty = camera.world_to_screen(self.target_planet.x, self.target_planet.y)
@@ -234,6 +378,19 @@ class Ship:
         elif self.state == MISSION_RETURN:
             tx, ty = camera.world_to_screen(self.home.x, self.home.y)
             pygame.draw.line(surface, (*CYAN, 60), (sx, sy), (tx, ty), 1)
+        elif self.state == MISSION_PATROL and self._patrol_dest:
+            tx, ty = camera.world_to_screen(self._patrol_dest[0], self._patrol_dest[1])
+            line_color = (*RED, 60) if self.faction == "enemy" else (*ORANGE, 60)
+            pygame.draw.line(surface, line_color, (sx, sy), (tx, ty), 1)
+
+        # Fire range circle in combat state
+        if self.state == MISSION_COMBAT and self.faction == "player":
+            r_px = int(self.fire_range * camera.zoom)
+            if 10 < r_px < 1200:
+                ring_surf = pygame.Surface((r_px * 2 + 2, r_px * 2 + 2), pygame.SRCALPHA)
+                pygame.draw.circle(ring_surf, (220, 60, 60, 40), (r_px + 1, r_px + 1), r_px)
+                pygame.draw.circle(ring_surf, (220, 60, 60, 80), (r_px + 1, r_px + 1), r_px, 1)
+                surface.blit(ring_surf, (sx - r_px - 1, sy - r_px - 1))
 
         # ETA label while moving toward a destination
         if self.state in (MISSION_TRAVEL, MISSION_RETURN):

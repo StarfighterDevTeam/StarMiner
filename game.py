@@ -1,8 +1,10 @@
 import pygame
+import random
 from constants import *
 from camera import Camera
 from space_map import SpaceMap
 from planet import generate_planets
+from ship import Ship
 from ui import PlanetUI, ShipUI, ColonyBar
 
 class Game:
@@ -21,12 +23,54 @@ class Game:
         self._hovered_ship = None
         self._time_scale = 1.0
         self._running = True
+        self._patrol_mode_ship = None
 
         # Center camera on home planet at initial zoom
         self.camera.zoom = ZOOM_INIT
         home = self.planets[0]
         self.camera.x = home.x - SCREEN_W / (2 * self.camera.zoom)
         self.camera.y = home.y - SCREEN_H / (2 * self.camera.zoom)
+
+        # Enemy ships
+        self.enemy_ships = []
+        self._spawn_initial_enemies()
+
+    # ── enemy management ─────────────────────────────────────────
+    def _spawn_initial_enemies(self):
+        rng = random.Random(42)
+        spawn_zones = [
+            (WORLD_W * 0.1, WORLD_H * 0.1),
+            (WORLD_W * 0.9, WORLD_H * 0.1),
+            (WORLD_W * 0.1, WORLD_H * 0.9),
+            (WORLD_W * 0.9, WORLD_H * 0.9),
+            (WORLD_W * 0.5, WORLD_H * 0.1),
+        ]
+        for i, (bx, by) in enumerate(spawn_zones):
+            wx = bx + rng.randint(-500, 500)
+            wy = by + rng.randint(-500, 500)
+            # Use a dummy planet as home carrier for the enemy
+            class _FakePlanet:
+                def __init__(self, x, y):
+                    self.x = x; self.y = y; self.name = "Ennemi"
+                    self.ships = []; self.resources = {}; self.id = -(i + 1)
+            fp = _FakePlanet(wx, wy)
+            s = Ship("Fighter", fp)
+            s.x = float(wx)
+            s.y = float(wy)
+            s.faction = "enemy"
+            self.enemy_ships.append(s)
+
+    def _update_enemies(self, dt, all_ships):
+        for s in self.enemy_ships:
+            if s._destroyed:
+                continue
+            s.update(dt, self.planets, self.highways, all_ships)
+            if s.state == "idle":
+                wx = random.randint(500, WORLD_W - 500)
+                wy = random.randint(500, WORLD_H - 500)
+                s.send_patrol(wx, wy)
+
+        self.enemy_ships = [s for s in self.enemy_ships if not s._destroyed]
 
     # ── main loop ────────────────────────────────────────────────
     def run(self):
@@ -46,9 +90,11 @@ class Game:
                 self._running = False
                 return
 
-            # ESC: cancel mission mode first, then close UIs, then quit
+            # ESC: cancel active modes in priority order
             if event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
-                if self.ui._mission_mode:
+                if self._patrol_mode_ship:
+                    self._patrol_mode_ship = None
+                elif self.ui._mission_mode:
                     self.ui._mission_mode = None
                     self.ui.show_message("Mission annulée")
                 elif self.ship_ui.visible:
@@ -79,11 +125,38 @@ class Game:
                 continue
 
             # Ship UI events (intercepts clicks on its panel)
-            if self.ship_ui.handle_event(event):
+            ship_ev = self.ship_ui.handle_event(event)
+            if ship_ev == "patrol_requested":
+                self._patrol_mode_ship = self.ship_ui.ship
+                self.ship_ui.close()
+                continue
+            if ship_ev:
                 continue
 
             # Planet UI events
             if self.ui.handle_event(event, self.planets, self.ships):
+                continue
+
+            # Patrol mode: click map to send combat ship to a destination
+            if self._patrol_mode_ship:
+                if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                    on_ui = ((self.ui.visible and self.ui.panel_rect.collidepoint((mx, my))) or
+                             (self.ship_ui.visible and self.ship_ui.panel_rect.collidepoint((mx, my))) or
+                             self.colony_bar.contains_point((mx, my), self.planets))
+                    if not on_ui:
+                        dock_planet = next(
+                            (p for p in self.planets
+                             if p.colonized and p.is_clicked(mx, my, self.camera)), None)
+                        wx, wy = self.camera.screen_to_world(mx, my)
+                        if dock_planet:
+                            wx, wy = dock_planet.x, dock_planet.y
+                        ship = self._patrol_mode_ship
+                        self._patrol_mode_ship = None
+                        if ship.state == "idle":
+                            ship.send_patrol(wx, wy, dock_planet=dock_planet)
+                        continue
+                else:
+                    self.camera.handle_event(event)
                 continue
 
             # Mission target selection: only left-click picks a planet
@@ -130,10 +203,18 @@ class Game:
     def _update(self, dt):
         self.space_map.update(dt)
         self.ui.update(dt)
+
+        # Check if PlanetUI requested patrol mode for a fleet ship
+        if getattr(self.ui, '_patrol_request', None):
+            self._patrol_mode_ship = self.ui._patrol_request
+            self.ui._patrol_request = None
+
+        all_ships = self.ships + self.enemy_ships
         for p in self.planets:
             p.update(dt, self.ships)
         for s in self.ships:
-            s.update(dt, self.planets, self.highways)
+            s.update(dt, self.planets, self.highways, all_ships)
+        self._update_enemies(dt, all_ships)
         self.ships = [s for s in self.ships if not s._destroyed]
 
         mx, my = pygame.mouse.get_pos()
@@ -167,6 +248,8 @@ class Game:
             self._hovered_planet.draw_hover(self.screen, self.camera)
         for s in self.ships:
             s.draw(self.screen, self.camera)
+        for s in self.enemy_ships:
+            s.draw(self.screen, self.camera)
         if self._hovered_ship:
             self._hovered_ship.draw_hover(self.screen, self.camera)
         self.ui.draw(self.screen, self.planets, self.highways)
@@ -176,8 +259,24 @@ class Game:
         self.colony_bar.draw(self.screen, self.planets,
                              selected_planet=self.ui.planet if self.ui.visible else None,
                              mission_mode=bool(self.ui._mission_mode))
+        self._draw_patrol_overlay()
         self._draw_hud()
         pygame.display.flip()
+
+    def _draw_patrol_overlay(self):
+        if not self._patrol_mode_ship:
+            return
+        try:
+            font = pygame.font.SysFont("consolas", 14)
+        except Exception:
+            font = pygame.font.Font(None, 16)
+        msg = ">> Cliquez sur la carte pour définir la destination  |  ESC pour annuler <<"
+        t = font.render(msg, True, ORANGE)
+        x = SCREEN_W // 2 - t.get_width() // 2
+        surface = pygame.Surface((t.get_width() + 20, t.get_height() + 8), pygame.SRCALPHA)
+        surface.fill((10, 10, 30, 180))
+        self.screen.blit(surface, (x - 10, 14))
+        self.screen.blit(t, (x, 18))
 
     def _draw_highways(self):
         planet_by_id = {p.id: p for p in self.planets}
