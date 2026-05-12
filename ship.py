@@ -28,6 +28,10 @@ def _load_sprite_frames(path, num_frames, size):
 SHIP_IMG_PATHS = {
     "Probe": "assets/2D/Probe1.png",
     "Miner": "assets/2D/Miner1.png",
+    "Cargo": "assets/2D/Cargo1.png",
+    "Destroyer": "assets/2D/Destroyer1.png",
+    "Battleship": "assets/2D/Battleship1.png",
+    "Cruiser": "assets/2D/Cruiser1.png",
 }
 SHIP_SPRITE_FRAMES = {
     "Probe": 3,

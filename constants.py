@@ -118,7 +118,7 @@ SHIP_DEFS = {
     "Tanker":     {"cost": {"iron": 200, "gold": 50},                        "time": 55, "speed": 80,  "capacity": 600,  "missions": ["pump"],      "shipyard_level": 2, "fuel_type": "oil",       "fuel_rate": 0.007},
     "Freighter":  {"cost": {"iron": 250, "gold": 60,  "oil": 30},            "time": 60, "speed": 60,  "capacity": 800,  "missions": ["mine"],      "shipyard_level": 5, "fuel_type": "oil",       "fuel_rate": 0.008},
     "Constructor":{"cost": {"iron": 400, "gold": 100, "silver": 80},         "time": 90,  "speed": 70,  "capacity": 0, "missions": ["highway"],   "shipyard_level": 1, "fuel_type": "oil",       "fuel_rate": 0.005},
-    "Fighter":    {"cost": {"iron": 150, "gold": 60},                         "time": 40,  "speed": 120, "capacity": 0, "missions": ["patrol"],    "shipyard_level": 1,
+    "Fighter":    {"cost": {"iron": 150, "gold": 60},                         "time": 40,  "speed": 120, "capacity": 40, "missions": ["patrol"],    "shipyard_level": 1,
                    "hp": 60,  "damage": 15, "fire_range": 350, "fire_rate": 1.2, "fuel_type": "oil",       "fuel_rate": 0.004, "fuel_capacity": 60},
     "Destroyer":  {"cost": {"iron": 350, "gold": 120, "silver": 60},          "time": 80,  "speed": 100, "capacity": 0, "missions": ["patrol"],    "shipyard_level": 2,
                    "hp": 200, "damage": 35, "fire_range": 450, "fire_rate": 0.6, "fuel_type": "oil",       "fuel_rate": 0.006, "fuel_capacity": 90},
