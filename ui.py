@@ -548,16 +548,19 @@ class PlanetUI:
             if not planet.colonized or has_highway: return False
         return ship.has_fuel_for(mtype, planet)
 
-    def draw_mission_hover(self, surface, planet, camera, highways=None):
-        if not self._mission_mode:
+    def draw_mission_hover(self, surface, planet, camera, highways=None, patrol_ship=None):
+        if self._mission_mode:
+            mtype, ship = self._mission_mode
+        elif patrol_ship:
+            mtype, ship = "patrol", patrol_ship
+        else:
             return
-        mtype, ship = self._mission_mode
 
         dist_to   = math.hypot(ship.x - planet.x, ship.y - planet.y)
         dist_back = math.hypot(planet.x - ship.home.x, planet.y - ship.home.y)
 
-        # Highway bonus applies if a link already exists
-        has_highway = (highways is not None and
+        # Highway bonus applies if a link already exists (not relevant for patrol)
+        has_highway = (mtype != "patrol" and highways is not None and
                        frozenset({ship.home.id, planet.id}) in highways)
         speed_mult = 1.5 if has_highway else 1.0
         travel_to   = dist_to   / max(ship.speed * speed_mult, 1)
@@ -571,7 +574,7 @@ class PlanetUI:
             mission_dur = 0.0
 
         from ship import MINE_RESOURCES, PUMP_RESOURCES
-        one_way = mtype in MISSION_ONE_WAY
+        one_way = mtype in MISSION_ONE_WAY or mtype == "patrol"
         total = travel_to + mission_dur + (0 if one_way else travel_back)
 
         lines = []
@@ -601,9 +604,13 @@ class PlanetUI:
         elif mtype == "highway" and has_highway:
             error = ("Autoroute déjà existante", ORANGE)
 
-        # Fuel check
-        fuel = ship.fuel_cost(mtype, planet)
-        fuel_avail = ship.home.resources.get(ship.fuel_type, 0)
+        # Fuel check — patrol draws from current position and may reuse existing fuel
+        if mtype == "patrol":
+            fuel = ship.fuel_cost_patrol(planet.x, planet.y)
+            fuel_avail = ship.home.resources.get(ship.fuel_type, 0) + ship.fuel_remaining
+        else:
+            fuel = ship.fuel_cost(mtype, planet)
+            fuel_avail = ship.home.resources.get(ship.fuel_type, 0)
         fuel_ok = fuel_avail >= fuel
         if error is None and not fuel_ok:
             error = (f"{ship.fuel_type.capitalize()} insuffisant"
@@ -611,7 +618,7 @@ class PlanetUI:
 
         # Habitability hint appended to valid targets when relevant
         hab_hint = None
-        if error is None and planet.explored and not planet.habitable and mtype != "colonize":
+        if error is None and planet.explored and not planet.habitable and mtype not in ("colonize", "patrol"):
             hab_hint = ("Non colonisable (inhabitable)", (100, 80, 60))
 
         fuel_line = (f"Carburant : {fuel:.0f} {ship.fuel_type}", GREEN if fuel_ok else RED)
@@ -647,6 +654,42 @@ class PlanetUI:
         h = len(lines) * line_h + pad
 
         sx, sy = camera.world_to_screen(planet.x, planet.y)
+        tx = int(sx) + 18
+        ty = int(sy) - h // 2
+        tx = min(tx, int(SCREEN_W) - w - 4)
+        ty = max(ty, 4)
+        ty = min(ty, int(SCREEN_H) - h - 4)
+
+        panel = pygame.Surface((w, h), pygame.SRCALPHA)
+        panel.fill((8, 12, 28, 210))
+        pygame.draw.rect(panel, ORANGE, (0, 0, w, h), 1, border_radius=4)
+        surface.blit(panel, (tx, ty))
+        for i, (txt, color) in enumerate(lines):
+            surface.blit(f.render(txt, True, color), (tx + pad, ty + pad // 2 + i * line_h))
+
+    def draw_patrol_hover(self, surface, wx, wy, camera, ship):
+        dist = math.hypot(ship.x - wx, ship.y - wy)
+        travel_to = dist / max(ship.speed, 1)
+        fuel = ship.fuel_cost_patrol(wx, wy)
+        fuel_avail = ship.home.resources.get(ship.fuel_type, 0) + ship.fuel_remaining
+        fuel_ok = fuel_avail >= fuel
+
+        lines = []
+        if not fuel_ok:
+            lines.append((f"{ship.fuel_type.capitalize()} insuffisant"
+                          f" ({fuel:.0f} requis, {fuel_avail:.0f} dispo)", RED))
+        else:
+            lines.append((f"Aller   : {_fmt_time(travel_to)}", UI_TEXT))
+            lines.append((f"Total   : {_fmt_time(travel_to)}", CYAN))
+        lines.append((f"Carburant : {fuel:.0f} {ship.fuel_type}", GREEN if fuel_ok else RED))
+
+        f = _font(11)
+        line_h = 15
+        pad = 8
+        w = max(f.size(txt)[0] for txt, _ in lines) + pad * 2
+        h = len(lines) * line_h + pad
+
+        sx, sy = camera.world_to_screen(wx, wy)
         tx = int(sx) + 18
         ty = int(sy) - h // 2
         tx = min(tx, int(SCREEN_W) - w - 4)

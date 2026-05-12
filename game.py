@@ -291,7 +291,12 @@ class Game:
         self.ui.draw(self.screen, self.planets, self.highways,
                      patrol_mode_ship=self._patrol_mode_ship)
         if self._hovered_planet:
-            self.ui.draw_mission_hover(self.screen, self._hovered_planet, self.camera, self.highways)
+            self.ui.draw_mission_hover(self.screen, self._hovered_planet, self.camera, self.highways,
+                                       patrol_ship=self._patrol_mode_ship)
+        elif self._patrol_mode_ship:
+            mx, my = pygame.mouse.get_pos()
+            wx, wy = self.camera.screen_to_world(mx, my)
+            self.ui.draw_patrol_hover(self.screen, wx, wy, self.camera, self._patrol_mode_ship)
         self.ship_ui.draw(self.screen)
         self.colony_bar.draw(self.screen, self.planets,
                              selected_planet=self.ui.planet if self.ui.visible else None,
