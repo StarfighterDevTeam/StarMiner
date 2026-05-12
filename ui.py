@@ -695,7 +695,6 @@ class PlanetUI:
             lines.append((f"{ship.fuel_type.capitalize()} insuffisant", RED))
         else:
             lines.append((f"Aller   : {_fmt_time(travel_to)}", UI_TEXT))
-            lines.append(("Patrouille : en continu", ORANGE))
             lines.append((f"Total   : {_fmt_time(travel_to)}", CYAN))
         lines.append((fuel_label, GREEN if fuel_ok else RED))
 
