@@ -54,34 +54,57 @@ class Game:
         # Enemy ships
         self.enemy_ships = []
         self._spawn_initial_enemies()
+        self._visible_enemies = set()
         self._hud_msg = ""
         self._hud_msg_timer = 0.0
 
     # ── enemy management ─────────────────────────────────────────
     def _spawn_initial_enemies(self):
         rng = random.Random(42)
-        spawn_zones = [
-            (WORLD_W * 0.1, WORLD_H * 0.1),
-            (WORLD_W * 0.9, WORLD_H * 0.1),
-            (WORLD_W * 0.1, WORLD_H * 0.9),
-            (WORLD_W * 0.9, WORLD_H * 0.9),
-            (WORLD_W * 0.5, WORLD_H * 0.1),
+        home = self.planets[0]
+
+        _ENEMY_SHIPS = [
+            {"faction": "krell",   "type": "Fighter"},
+            {"faction": "krell",   "type": "Destroyer"},
+            {"faction": "vexari",  "type": "Fighter"},
+            {"faction": "nexus",   "type": "Fighter"},
+            {"faction": "neutral", "type": "Fighter"},
         ]
-        for i, (bx, by) in enumerate(spawn_zones):
-            wx = bx + rng.randint(-500, 500)
-            wy = by + rng.randint(-500, 500)
-            # Use a dummy planet as home carrier for the enemy
-            class _FakePlanet:
-                def __init__(self, x, y):
-                    self.x = x; self.y = y; self.name = "Ennemi"
-                    self.ships = []; self.resources = {}; self.id = -(i + 1)
-            fp = _FakePlanet(wx, wy)
-            s = Ship("Fighter", fp)
+
+        n = len(_ENEMY_SHIPS)
+        sectors = list(range(n))
+        rng.shuffle(sectors)
+        sector_size = 2 * math.pi / n
+
+        class _FakePlanet:
+            def __init__(self_, x, y, name, pid):
+                self_.x = x; self_.y = y; self_.name = name
+                self_.ships = []; self_.resources = {}; self_.id = pid
+
+        for i, entry in enumerate(_ENEMY_SHIPS):
+            faction = entry["faction"]
+            relationship = FACTION_DEFS[faction]["relationship"]
+
+            # Distance zone: neutrals closer to home, enemies farther
+            if relationship == "neutral":
+                r = rng.uniform(3000, 5000)
+            else:
+                r = rng.uniform(8000, 11000)
+
+            # Evenly spread angular sectors, shuffled for randomness
+            base_angle = sectors[i] * sector_size
+            angle = base_angle + rng.uniform(-math.pi / 9, math.pi / 9)  # ±20° jitter
+
+            wx = max(500, min(WORLD_W - 500, home.x + r * math.cos(angle)))
+            wy = max(500, min(WORLD_H - 500, home.y + r * math.sin(angle)))
+
+            fname = FACTION_DEFS[faction]["name"]
+            fp = _FakePlanet(wx, wy, fname, -(i + 1))
+            s = Ship(entry["type"], fp, faction=faction)
             s.x = float(wx)
             s.y = float(wy)
-            s.faction = "enemy"
             if s.fuel_capacity is not None:
-                s.fuel_remaining = s.fuel_capacity  # enemies start with full tank
+                s.fuel_remaining = s.fuel_capacity
             self.enemy_ships.append(s)
 
     def _update_enemies(self, dt, all_ships):
@@ -242,6 +265,24 @@ class Game:
         self.camera.update(keys)
         self._time_scale = 10.0 if keys[pygame.K_KP_PLUS] else 1.0
 
+    # ── fog of war ───────────────────────────────────────────────
+    def _compute_visible_enemies(self):
+        """Non-player ships visible only within SECTOR_SIZE of a colonized planet or player ship."""
+        r2 = DETECTION_RANGE * DETECTION_RANGE
+        visible = set()
+        for s in self.enemy_ships:
+            for p in self.planets:
+                if p.colonized and (s.x - p.x) ** 2 + (s.y - p.y) ** 2 <= r2:
+                    visible.add(s)
+                    break
+            if s in visible:
+                continue
+            for ps in self.ships:
+                if (s.x - ps.x) ** 2 + (s.y - ps.y) ** 2 <= r2:
+                    visible.add(s)
+                    break
+        return visible
+
     # ── update ───────────────────────────────────────────────────
     def _update(self, dt):
         self.space_map.update(dt)
@@ -257,16 +298,18 @@ class Game:
         self._update_enemies(dt, all_ships)
         self.ships = [s for s in self.ships if not s._destroyed]
 
+        self._visible_enemies = self._compute_visible_enemies()
+
         mx, my = pygame.mouse.get_pos()
         in_planet_panel = self.ui.visible and self.ui.panel_rect.collidepoint(mx, my)
         in_ship_panel   = self.ship_ui.visible and self.ship_ui.panel_rect.collidepoint(mx, my)
         in_colony_bar   = self.colony_bar.contains_point((mx, my), self.planets)
 
-        # Ship hover (priority)
+        # Ship hover (priority) — player ships first, then visible enemy ships
         self._hovered_ship = None
         if not in_planet_panel and not in_ship_panel and not in_colony_bar:
             self._hovered_ship = next(
-                (s for s in self.ships
+                (s for s in self.ships + list(self._visible_enemies)
                  if not s.is_docked and s.is_clicked(mx, my, self.camera)), None)
 
         # Planet hover (only if no ship hovered)
@@ -279,6 +322,7 @@ class Game:
     def _draw(self):
         self.space_map.draw(self.screen, self.camera)
         self._draw_highways()
+        self._draw_detection_radii()
         for p in self.planets:
             p.draw(self.screen, self.camera)
         selected_planet = self.ui.planet if self.ui.visible else None
@@ -289,7 +333,7 @@ class Game:
         for s in self.ships:
             if not s.is_docked:
                 s.draw(self.screen, self.camera)
-        for s in self.enemy_ships:
+        for s in self._visible_enemies:
             s.draw(self.screen, self.camera)
         if self._hovered_ship:
             self._hovered_ship.draw_hover(self.screen, self.camera)
@@ -408,6 +452,24 @@ class Game:
         surface.fill((10, 10, 30, 180))
         self.screen.blit(surface, (x - 10, 14))
         self.screen.blit(t, (x, 18))
+
+    def _draw_detection_radii(self):
+        """Gray semi-transparent circles showing detection range (SECTOR_SIZE) around player assets."""
+        surf = pygame.Surface((SCREEN_W, SCREEN_H), pygame.SRCALPHA)
+        r_px = int(DETECTION_RANGE * self.camera.zoom)
+        if r_px < 2:
+            return
+        for p in self.planets:
+            if p.colonized:
+                sx, sy = self.camera.world_to_screen(p.x, p.y)
+                pygame.draw.circle(surf, (110, 110, 110, 18), (sx, sy), r_px)
+                pygame.draw.circle(surf, (140, 140, 140, 55), (sx, sy), r_px, 1)
+        for s in self.ships:
+            if not s.is_docked:
+                sx, sy = self.camera.world_to_screen(s.x, s.y)
+                pygame.draw.circle(surf, (110, 110, 110, 18), (sx, sy), r_px)
+                pygame.draw.circle(surf, (140, 140, 140, 55), (sx, sy), r_px, 1)
+        self.screen.blit(surf, (0, 0))
 
     def _draw_highways(self):
         planet_by_id = {p.id: p for p in self.planets}

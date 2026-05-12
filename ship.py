@@ -50,11 +50,12 @@ MISSION_COMBAT   = "combat"
 
 
 class Ship:
-    _id_counter = 0
+    _id_counters: dict = {}  # per-faction counters
 
-    def __init__(self, ship_type, home_planet):
-        Ship._id_counter += 1
-        self.id = Ship._id_counter
+    def __init__(self, ship_type, home_planet, faction="player"):
+        self.faction = faction
+        Ship._id_counters[faction] = Ship._id_counters.get(faction, 0) + 1
+        self.id = Ship._id_counters[faction]
         self.type = ship_type
         self.home = home_planet
         defn = SHIP_DEFS[ship_type]
@@ -76,8 +77,13 @@ class Ship:
         self._destroyed = False
         self.repeat = False
 
+        # Faction display
+        fdef = FACTION_DEFS.get(faction, FACTION_DEFS["player"])
+        self.faction_name = fdef["name"]
+        self.faction_relationship = fdef["relationship"]
+        self.faction_color = RELATIONSHIP_COLORS[self.faction_relationship]
+
         # Combat attributes
-        self.faction = "player"
         self.hp = defn.get("hp", -1)
         self.max_hp = defn.get("hp", -1)
         self.damage = defn.get("damage", 0)
@@ -445,6 +451,14 @@ class Ship:
         sx, sy = camera.world_to_screen(self.x, self.y)
         r = max(8, int(SHIP_DRAW_SIZE * camera.zoom)) // 2 + 10
         pygame.draw.circle(surface, CYAN, (sx, sy), r, 2)
+        if self.faction != "player":
+            rel_label = RELATIONSHIP_LABELS.get(self.faction_relationship, self.faction_relationship)
+            try:
+                _rf = pygame.font.SysFont("consolas", 10)
+            except Exception:
+                _rf = pygame.font.Font(None, 12)
+            _rt = _rf.render(rel_label, True, self.faction_color)
+            surface.blit(_rt, (sx - _rt.get_width() // 2, sy - r - _rt.get_height() - 2))
 
     # ── draw ─────────────────────────────────────────────────────
     def draw(self, surface, camera):
@@ -462,8 +476,8 @@ class Ship:
 
         # State dot
         mission_type = getattr(self, "_mission_type", None)
-        if self.faction == "enemy":
-            dot_color = RED
+        if self.faction != "player":
+            dot_color = self.faction_color
         elif self.state == MISSION_TRAVEL and mission_type == "colonize":
             dot_color = GOLD
         elif self.state == MISSION_COMBAT:
@@ -481,10 +495,18 @@ class Ship:
             }.get(self.state, WHITE)
         pygame.draw.circle(surface, dot_color, (sx + draw_size // 2, sy - draw_size // 2), max(3, int(4 * camera.zoom)))
 
-        # Enemy faction ring
-        if self.faction == "enemy":
-            pygame.draw.circle(surface, RED, (sx, sy),
+        # Non-player faction ring + permanent name label
+        if self.faction != "player":
+            pygame.draw.circle(surface, self.faction_color, (sx, sy),
                                max(8, draw_size // 2) + 3, 1)
+            if camera.zoom >= 0.3:
+                try:
+                    _ff = pygame.font.SysFont("consolas", 9)
+                except Exception:
+                    _ff = pygame.font.Font(None, 10)
+                _fl = _ff.render(self.faction_name, True, self.faction_color)
+                surface.blit(_fl, (sx - _fl.get_width() // 2,
+                                   sy + draw_size // 2 + 12))
 
         # HP bar for combat ships
         if self.hp >= 0 and self.max_hp > 0:
@@ -517,7 +539,7 @@ class Ship:
             pygame.draw.line(surface, (*CYAN, 60), (sx, sy), (tx, ty), 1)
         elif self.state == MISSION_PATROL and self._patrol_dest:
             tx, ty = camera.world_to_screen(self._patrol_dest[0], self._patrol_dest[1])
-            line_color = (*RED, 60) if self.faction == "enemy" else (*ORANGE, 60)
+            line_color = (*self.faction_color, 60) if self.faction != "player" else (*ORANGE, 60)
             pygame.draw.line(surface, line_color, (sx, sy), (tx, ty), 1)
 
         # Fire range circle in combat state

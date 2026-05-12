@@ -4,6 +4,7 @@ import pygame
 WORLD_W = 24000
 WORLD_H = 24000
 SECTOR_SIZE = 800          # pixels per sector cell
+DETECTION_RANGE = 800      # fog-of-war visibility radius around player assets (world px)
 PLANET_MIN_DIST = 1000     # min distance between planets
 PLANET_MAX_DIST = 2000     # max distance between planets
 NUM_PLANETS = 30
@@ -124,6 +125,27 @@ SHIP_DEFS = {
     "Battleship": {"cost": {"iron": 800, "gold": 300, "silver": 150, "oil": 50}, "time": 180, "speed": 80, "capacity": 0, "missions": ["patrol"],  "shipyard_level": 3,
                    "hp": 600, "damage": 80, "fire_range": 550, "fire_rate": 0.3, "fuel_type": "deuterium", "fuel_rate": 0.004, "fuel_capacity": 160},
     }
+
+# Factions — relationship values: "player", "ally", "enemy", "neutral"
+FACTION_DEFS = {
+    "player":  {"name": "Alliance Terrienne", "relationship": "player"},
+    "krell":   {"name": "Krell Raiders",      "relationship": "enemy"},
+    "vexari":  {"name": "Vexari Collective",  "relationship": "enemy"},
+    "nexus":   {"name": "Nexus Syndicate",    "relationship": "enemy"},
+    "neutral": {"name": "Corsaires",          "relationship": "neutral"},
+}
+RELATIONSHIP_COLORS = {
+    "player":  (80, 220, 120),
+    "ally":    (60, 200, 220),
+    "enemy":   (220, 70, 70),
+    "neutral": (255, 160, 40),
+}
+RELATIONSHIP_LABELS = {
+    "player":  "Joueur",
+    "ally":    "Allié",
+    "enemy":   "Ennemi",
+    "neutral": "Neutre",
+}
 
 # Mission types that are one-way (ship does not return to home after completing)
 MISSION_ONE_WAY = frozenset({"explore", "colonize", "highway"})
