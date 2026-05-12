@@ -432,6 +432,11 @@ class PlanetUI:
         y += 6
         res_font = _font(11)
         col_w = (pr.w - 20) // 3
+        prod = {}
+        if p.colonized:
+            for b in p.buildings:
+                for r, rate in b.produces.items():
+                    prod[r] = prod.get(r, 0) + rate
         res_items = [(r, v) for r, v in p.resources.items() if v > 0 or r in p.available_resources]
         for i, (res, val) in enumerate(res_items):
             col = i % 3
@@ -442,7 +447,9 @@ class PlanetUI:
             if p.colonized:
                 cap = p.storage_cap_for(res)
                 near_cap = val >= cap * 0.95
-                label = f"{res[:3].upper()}:{int(val)}/{int(cap)}"
+                rate = prod.get(res, 0)
+                prod_str = f" (+{rate:.0f}/s)" if rate > 0 else ""
+                label = f"{res[:3].upper()}:{int(val)}/{int(cap)}{prod_str}"
                 t = res_font.render(label, True, RED if near_cap else color)
             else:
                 label = res[:RESOURCE_MAX_CHAR].upper()
@@ -452,19 +459,6 @@ class PlanetUI:
         y += max(rows * 16 + 4, 20)
 
         if p.colonized:
-            # Production rates
-            prod = {}
-            for b in p.buildings:
-                for r, rate in b.produces.items():
-                    prod[r] = prod.get(r, 0) + rate
-            if prod:
-                prod_font = _font(10)
-                parts = [f"+{rate:.1f}/s {res[:RESOURCE_MAX_CHAR]}" for res, rate in prod.items()]
-                pt = prod_font.render("  ".join(parts), True, GREEN)
-                surface.blit(pt, (pr.x + 10, y))
-                y += 14
-            y += 4
-
             # ── Tabs ─────────────────────────────────────────────────
             tabs = ["Buildings", "Ships", "Fleet"]
             tab_w = pr.w // len(tabs)

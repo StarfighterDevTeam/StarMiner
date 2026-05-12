@@ -3,26 +3,38 @@ import math
 import os
 from constants import *
 
-_ship_images = {}
+_ship_sheets = {}
 
-def _load_ship_img(path, size):
-    key = (path, size)
-    if key not in _ship_images:
+def _load_sprite_frames(path, num_frames, size):
+    key = (path, num_frames, size)
+    if key not in _ship_sheets:
         try:
-            img = pygame.image.load(path).convert_alpha()
-            img = pygame.transform.smoothscale(img, (size, size))
+            sheet = pygame.image.load(path).convert_alpha()
+            frame_w = sheet.get_width() // num_frames
+            frame_h = sheet.get_height()
+            frames = []
+            for i in range(num_frames):
+                sub = sheet.subsurface(pygame.Rect(i * frame_w, 0, frame_w, frame_h))
+                sub = pygame.transform.smoothscale(sub, (size, size))
+                frames.append(sub)
         except Exception:
-            img = pygame.Surface((size, size), pygame.SRCALPHA)
-            pygame.draw.polygon(img, (180, 200, 255),
+            fallback = pygame.Surface((size, size), pygame.SRCALPHA)
+            pygame.draw.polygon(fallback, (180, 200, 255),
                                 [(size//2, 0), (size, size), (size//2, size*3//4), (0, size)])
-        _ship_images[key] = img
-    return _ship_images[key]
+            frames = [fallback] * max(num_frames, 1)
+        _ship_sheets[key] = frames
+    return _ship_sheets[key]
 
 SHIP_IMG_PATHS = {
     "Probe": "assets/2D/Probe1.png",
     "Miner": "assets/2D/Miner1.png",
 }
+SHIP_SPRITE_FRAMES = {
+    "Probe": 3,
+    "Miner": 3,
+}
 SHIP_DRAW_SIZE = 28
+_ANIM_FRAME_DUR = 1 / 8   # 8 fps animation
 
 MINE_RESOURCES = frozenset({"iron", "silver", "gold"})
 PUMP_RESOURCES = frozenset({"oil", "deuterium"})
@@ -84,6 +96,10 @@ class Ship:
         self.fuel_type      = defn.get("fuel_type", "oil")
         self.fuel_rate      = defn.get("fuel_rate", 0.005)
         self.fuel_remaining = 0.0
+
+        # Animation
+        self._anim_timer = 0.0
+        self._anim_frame = 0
 
     # ── fuel helpers ─────────────────────────────────────────────
     def fuel_cost(self, mtype, target):
@@ -347,6 +363,14 @@ class Ship:
                 self._shoot_flash = (enemy.x, enemy.y, 0.15)
                 self._fire_cooldown = 1.0 / max(self.fire_rate, 0.001)
 
+        # Sprite animation
+        nframes = SHIP_SPRITE_FRAMES.get(self.type, 1)
+        if nframes > 1:
+            self._anim_timer += dt
+            if self._anim_timer >= _ANIM_FRAME_DUR:
+                self._anim_timer -= _ANIM_FRAME_DUR
+                self._anim_frame = (self._anim_frame + 1) % nframes
+
     def _travel_speed(self, highways):
         if highways and self.target_planet:
             link = frozenset({self.home.id, self.target_planet.id})
@@ -391,7 +415,9 @@ class Ship:
         if sx < -50 or sx > SCREEN_W + 50 or sy < -50 or sy > SCREEN_H + 50:
             return
         draw_size = max(8, int(SHIP_DRAW_SIZE * camera.zoom))
-        img = _load_ship_img(SHIP_IMG_PATHS.get(self.type, ""), draw_size)
+        nframes = SHIP_SPRITE_FRAMES.get(self.type, 1)
+        frames = _load_sprite_frames(SHIP_IMG_PATHS.get(self.type, ""), nframes, draw_size)
+        img = frames[self._anim_frame % len(frames)]
         deg = -math.degrees(self.angle) - 90
         rotated = pygame.transform.rotate(img, deg)
         rect = rotated.get_rect(center=(sx, sy))
