@@ -346,19 +346,53 @@ class Game:
             _draw_dashed_line(self.screen, color, src, dst)
 
     def _draw_patrol_range_circle(self, ship):
-        """Orange range circle showing how far the ship can patrol from its current position."""
+        """Draw the exact reachable patrol zone as a polygon.
+
+        For each sampled direction the max reach d satisfies:
+          d + dist(P, nearest_colony) = R  (R = fuel_remaining / fuel_rate)
+        which for colony at relative (cx,cy) gives the closed form:
+          d = (R^2 - dc^2) / (2*(R - cx*cos - cy*sin))
+        Blocked directions pin to the ship position, naturally producing the
+        sector/camembert cutoff seen when fuel is low or colonies are one-sided.
+        """
         if ship.fuel_capacity is None or ship.fuel_remaining <= 0:
             return
-        safe_range = ship.fuel_remaining / ship.fuel_rate / 2
-        r_px = int(safe_range * self.camera.zoom)
-        if r_px < 8:
+        R = ship.fuel_remaining / ship.fuel_rate
+        colonies = [
+            (p.x - ship.x, p.y - ship.y, math.hypot(p.x - ship.x, p.y - ship.y))
+            for p in self.planets if p.colonized
+        ]
+        if not colonies:
             return
-        sx, sy = self.camera.world_to_screen(ship.x, ship.y)
-        # Always allocate a screen-sized surface, never a (2*r_px)^2 surface —
-        # the latter can exceed 500 MB at typical zoom and fuel levels.
-        surf = pygame.Surface((SCREEN_W, SCREEN_H), pygame.SRCALPHA)
-        pygame.draw.circle(surf, (255, 140, 0, 100), (int(sx), int(sy)), r_px, 2)
-        self.screen.blit(surf, (0, 0))
+
+        N = 90
+        sx0, sy0 = self.camera.world_to_screen(ship.x, ship.y)
+        pts = []
+        for i in range(N):
+            theta = 2 * math.pi * i / N
+            cos_t = math.cos(theta)
+            sin_t = math.sin(theta)
+            max_d = 0.0
+            for cx, cy, dc in colonies:
+                if dc >= R:
+                    continue
+                denom = 2.0 * (R - cx * cos_t - cy * sin_t)
+                if denom < 1e-9:
+                    continue
+                d = (R * R - dc * dc) / denom
+                if d > max_d:
+                    max_d = d
+            if max_d > 0:
+                wx = ship.x + max_d * cos_t
+                wy = ship.y + max_d * sin_t
+                px, py = self.camera.world_to_screen(wx, wy)
+                pts.append((int(px), int(py)))
+            else:
+                pts.append((int(sx0), int(sy0)))
+
+        if len(pts) < 3:
+            return
+        pygame.draw.polygon(self.screen, (200, 120, 20), pts, 2)
 
     def _draw_patrol_overlay(self):
         if not self._patrol_mode_ship:
