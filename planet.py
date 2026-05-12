@@ -141,6 +141,11 @@ class Planet:
     def _spawn_ship(self, ship_type, all_ships):
         from ship import Ship
         s = Ship(ship_type, self)
+        if s.fuel_capacity is not None:
+            available = self.resources.get(s.fuel_type, 0)
+            amount = min(s.fuel_capacity, available)
+            self.resources[s.fuel_type] -= amount
+            s.fuel_remaining = amount
         all_ships.append(s)
         self.ships.append(s)
 

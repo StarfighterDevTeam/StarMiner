@@ -80,6 +80,8 @@ class Game:
             s.x = float(wx)
             s.y = float(wy)
             s.faction = "enemy"
+            if s.fuel_capacity is not None:
+                s.fuel_remaining = s.fuel_capacity  # enemies start with full tank
             self.enemy_ships.append(s)
 
     def _update_enemies(self, dt, all_ships):
@@ -88,6 +90,8 @@ class Game:
                 continue
             s.update(dt, self.planets, self.highways, all_ships)
             if s.state == "idle":
+                if s.fuel_capacity is not None:
+                    s.fuel_remaining = s.fuel_capacity  # enemies magically refuel when idle
                 wx = random.randint(500, WORLD_W - 500)
                 wy = random.randint(500, WORLD_H - 500)
                 s.send_patrol(wx, wy)
@@ -170,7 +174,8 @@ class Game:
                             wx, wy = dock_planet.x, dock_planet.y
                         ship = self._patrol_mode_ship
                         self._patrol_mode_ship = None
-                        ok = ship.send_patrol(wx, wy, dock_planet=dock_planet)
+                        ok = ship.send_patrol(wx, wy, dock_planet=dock_planet,
+                                              planets=self.planets)
                         if not ok:
                             self._patrol_mode_ship = ship
                             self._hud_msg = f"Carburant insuffisant ({ship.fuel_type})"
@@ -288,6 +293,12 @@ class Game:
             s.draw(self.screen, self.camera)
         if self._hovered_ship:
             self._hovered_ship.draw_hover(self.screen, self.camera)
+        # Range circle for combat ships (patrol mode or selected in ShipUI)
+        _range_ship = self._patrol_mode_ship or (
+            self.ship_ui.ship if self.ship_ui.visible else None)
+        if _range_ship and _range_ship.fuel_capacity is not None:
+            self._draw_patrol_range_circle(_range_ship)
+
         self.ui.draw(self.screen, self.planets, self.highways,
                      patrol_mode_ship=self._patrol_mode_ship)
         if self._hovered_planet:
@@ -296,7 +307,8 @@ class Game:
         elif self._patrol_mode_ship:
             mx, my = pygame.mouse.get_pos()
             wx, wy = self.camera.screen_to_world(mx, my)
-            self.ui.draw_patrol_hover(self.screen, wx, wy, self.camera, self._patrol_mode_ship)
+            self.ui.draw_patrol_hover(self.screen, wx, wy, self.camera,
+                                      self._patrol_mode_ship, planets=self.planets)
         self.ship_ui.draw(self.screen)
         self.colony_bar.draw(self.screen, self.planets,
                              selected_planet=self.ui.planet if self.ui.visible else None,
@@ -330,8 +342,23 @@ class Game:
             else:
                 wx_dst, wy_dst = self.camera.screen_to_world(mx, my)
                 dst = (mx, my)
-            color = (180, 180, 180) if ship.has_fuel_for_patrol(wx_dst, wy_dst) else (220, 70, 70)
+            color = (180, 180, 180) if ship.can_patrol_to(wx_dst, wy_dst, self.planets) else (220, 70, 70)
             _draw_dashed_line(self.screen, color, src, dst)
+
+    def _draw_patrol_range_circle(self, ship):
+        """Orange range circle showing how far the ship can patrol from its current position."""
+        if ship.fuel_capacity is None or ship.fuel_remaining <= 0:
+            return
+        safe_range = ship.fuel_remaining / ship.fuel_rate / 2
+        r_px = int(safe_range * self.camera.zoom)
+        if r_px < 8:
+            return
+        sx, sy = self.camera.world_to_screen(ship.x, ship.y)
+        # Always allocate a screen-sized surface, never a (2*r_px)^2 surface —
+        # the latter can exceed 500 MB at typical zoom and fuel levels.
+        surf = pygame.Surface((SCREEN_W, SCREEN_H), pygame.SRCALPHA)
+        pygame.draw.circle(surf, (255, 140, 0, 100), (int(sx), int(sy)), r_px, 2)
+        self.screen.blit(surf, (0, 0))
 
     def _draw_patrol_overlay(self):
         if not self._patrol_mode_ship:

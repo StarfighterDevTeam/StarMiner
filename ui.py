@@ -580,7 +580,7 @@ class PlanetUI:
         lines = []
         # Check for blocking conditions first (show error instead of ETA)
         error = None
-        if planet is ship.home:
+        if planet is ship.home and not (mtype == "patrol" and not ship.is_docked):
             error = ("Même planète", RED)
         elif mtype == "explore" and planet.explored:
             error = (f"{planet.name} déjà explorée", ORANGE)
@@ -607,21 +607,28 @@ class PlanetUI:
         # Fuel check — patrol draws from current position and may reuse existing fuel
         if mtype == "patrol":
             fuel = ship.fuel_cost_patrol(planet.x, planet.y)
-            fuel_avail = ship.home.resources.get(ship.fuel_type, 0) + ship.fuel_remaining
+            if ship.fuel_capacity is not None:
+                fuel_return = ship._fuel_to_nearest_colony(planet.x, planet.y, [])
+                fuel_ok = ship.fuel_remaining >= fuel + fuel_return
+                fuel_line = (f"Réservoir : {fuel:.0f} requis / {ship.fuel_remaining:.0f} {ship.fuel_type}",
+                             GREEN if fuel_ok else RED)
+            else:
+                fuel_avail = ship.home.resources.get(ship.fuel_type, 0) + ship.fuel_remaining
+                fuel_ok = fuel_avail >= fuel
+                fuel_line = (f"Carburant : {fuel:.0f} {ship.fuel_type}", GREEN if fuel_ok else RED)
         else:
             fuel = ship.fuel_cost(mtype, planet)
             fuel_avail = ship.home.resources.get(ship.fuel_type, 0)
-        fuel_ok = fuel_avail >= fuel
+            fuel_ok = fuel_avail >= fuel
+            fuel_line = (f"Carburant : {fuel:.0f} {ship.fuel_type}", GREEN if fuel_ok else RED)
         if error is None and not fuel_ok:
             error = (f"{ship.fuel_type.capitalize()} insuffisant"
-                     f" ({fuel:.0f} requis, {fuel_avail:.0f} dispo)", RED)
+                     f" ({fuel:.0f} requis)", RED)
 
         # Habitability hint appended to valid targets when relevant
         hab_hint = None
         if error is None and planet.explored and not planet.habitable and mtype not in ("colonize", "patrol"):
             hab_hint = ("Non colonisable (inhabitable)", (100, 80, 60))
-
-        fuel_line = (f"Carburant : {fuel:.0f} {ship.fuel_type}", GREEN if fuel_ok else RED)
 
         if error:
             lines.append(error)
@@ -667,21 +674,30 @@ class PlanetUI:
         for i, (txt, color) in enumerate(lines):
             surface.blit(f.render(txt, True, color), (tx + pad, ty + pad // 2 + i * line_h))
 
-    def draw_patrol_hover(self, surface, wx, wy, camera, ship):
+    def draw_patrol_hover(self, surface, wx, wy, camera, ship, planets=None):
         dist = math.hypot(ship.x - wx, ship.y - wy)
         travel_to = dist / max(ship.speed, 1)
-        fuel = ship.fuel_cost_patrol(wx, wy)
-        fuel_avail = ship.home.resources.get(ship.fuel_type, 0) + ship.fuel_remaining
-        fuel_ok = fuel_avail >= fuel
+        fuel_leg = ship.fuel_cost_patrol(wx, wy)
+
+        if ship.fuel_capacity is not None:
+            fuel_return = ship._fuel_to_nearest_colony(wx, wy, planets or [])
+            fuel_needed = fuel_leg + fuel_return
+            fuel_ok = ship.fuel_remaining >= fuel_needed
+            fuel_label = (f"Réservoir : {fuel_needed:.0f} requis / "
+                          f"{ship.fuel_remaining:.0f} {ship.fuel_type}")
+        else:
+            fuel_avail = ship.home.resources.get(ship.fuel_type, 0) + ship.fuel_remaining
+            fuel_ok = fuel_avail >= fuel_leg
+            fuel_label = f"Carburant : {fuel_leg:.0f} {ship.fuel_type}"
 
         lines = []
         if not fuel_ok:
-            lines.append((f"{ship.fuel_type.capitalize()} insuffisant"
-                          f" ({fuel:.0f} requis, {fuel_avail:.0f} dispo)", RED))
+            lines.append((f"{ship.fuel_type.capitalize()} insuffisant", RED))
         else:
             lines.append((f"Aller   : {_fmt_time(travel_to)}", UI_TEXT))
+            lines.append(("Patrouille : en continu", ORANGE))
             lines.append((f"Total   : {_fmt_time(travel_to)}", CYAN))
-        lines.append((f"Carburant : {fuel:.0f} {ship.fuel_type}", GREEN if fuel_ok else RED))
+        lines.append((fuel_label, GREEN if fuel_ok else RED))
 
         f = _font(11)
         line_h = 15
@@ -1644,7 +1660,24 @@ class ShipUI:
         fuel_rate_t = _font(10).render(fuel_rate_str, True, (80, 95, 120))
         surface.blit(fuel_rate_t, (pr.x + 12, y))
         y += 13
-        if s.fuel_remaining > 0:
+
+        # Fuel tank gauge for combat ships (dedicated tank)
+        if s.fuel_capacity is not None:
+            ratio = max(0.0, min(1.0, s.fuel_remaining / s.fuel_capacity))
+            low = ratio < 0.25
+            fc = RED if ratio < 0.1 else (ORANGE if low else CYAN)
+            tank_label = f"Réservoir : {s.fuel_remaining:.0f} / {s.fuel_capacity} {s.fuel_type}"
+            surface.blit(_font(10).render(tank_label, True, fc), (pr.x + 12, y))
+            y += 13
+            bar_x, bar_y = pr.x + 12, y
+            bar_w, bar_h = pr.w - 24, 6
+            pygame.draw.rect(surface, (22, 28, 48), (bar_x, bar_y, bar_w, bar_h), border_radius=3)
+            fw = int(bar_w * ratio)
+            if fw > 0:
+                pygame.draw.rect(surface, fc, (bar_x, bar_y, fw, bar_h), border_radius=3)
+            pygame.draw.rect(surface, (50, 65, 100), (bar_x, bar_y, bar_w, bar_h), 1, border_radius=3)
+            y += 10
+        elif s.fuel_remaining > 0:
             fav = s.home.resources.get(s.fuel_type, 0)
             low = s.fuel_remaining < 10 or s.fuel_remaining < fav * 0.15
             fc = ORANGE if low else CYAN

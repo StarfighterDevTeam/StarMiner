@@ -95,6 +95,7 @@ class Ship:
         # Fuel attributes
         self.fuel_type      = defn.get("fuel_type", "oil")
         self.fuel_rate      = defn.get("fuel_rate", 0.005)
+        self.fuel_capacity  = defn.get("fuel_capacity", None)  # None = no dedicated tank
         self.fuel_remaining = 0.0
 
         # Animation
@@ -112,7 +113,28 @@ class Ship:
     def fuel_cost_patrol(self, wx, wy):
         return math.hypot(self.x - wx, self.y - wy) * self.fuel_rate
 
+    def _fuel_to_nearest_colony(self, wx, wy, planets):
+        """Minimum fuel to reach any colonized planet from world position (wx, wy)."""
+        best = float("inf")
+        for p in planets:
+            if p.colonized:
+                cost = math.hypot(wx - p.x, wy - p.y) * self.fuel_rate
+                if cost < best:
+                    best = cost
+        return best if best < float("inf") else 0.0
+
+    def can_patrol_to(self, wx, wy, planets=None):
+        """True if this ship can reach (wx,wy) and still return to a colonized planet."""
+        fuel_leg = self.fuel_cost_patrol(wx, wy)
+        if self.fuel_capacity is not None:
+            fuel_return = self._fuel_to_nearest_colony(wx, wy, planets or [])
+            return self.fuel_remaining >= fuel_leg + fuel_return
+        else:
+            available = self.home.resources.get(self.fuel_type, 0) + self.fuel_remaining
+            return available >= fuel_leg
+
     def has_fuel_for_patrol(self, wx, wy):
+        """Legacy check used by non-combat ships and enemy AI."""
         available = self.home.resources.get(self.fuel_type, 0) + self.fuel_remaining
         return available >= self.fuel_cost_patrol(wx, wy)
 
@@ -181,15 +203,22 @@ class Ship:
         self._mission_type = "highway"
         return True
 
-    def send_patrol(self, wx, wy, dock_planet=None):
+    def send_patrol(self, wx, wy, dock_planet=None, planets=None):
         if self.state not in (MISSION_IDLE, MISSION_PATROL, MISSION_COMBAT): return False
-        fuel_needed = self.fuel_cost_patrol(wx, wy)
-        # current fuel_remaining is available to fund the new leg
-        available = self.home.resources.get(self.fuel_type, 0) + self.fuel_remaining
-        if available < fuel_needed: return False
-        net = fuel_needed - self.fuel_remaining
-        self.home.resources[self.fuel_type] = self.home.resources.get(self.fuel_type, 0) - net
-        self.fuel_remaining = fuel_needed
+        fuel_leg = self.fuel_cost_patrol(wx, wy)
+        if self.fuel_capacity is not None:
+            # Combat ship: validate leg + return-to-nearest-colony budget from tank
+            fuel_return = self._fuel_to_nearest_colony(wx, wy, planets) if planets else 0.0
+            if self.fuel_remaining < fuel_leg + fuel_return:
+                return False
+            # No pre-deduction — _move_toward drains the tank continuously during travel
+        else:
+            # Non-combat / enemy: borrow from home planet as before
+            available = self.home.resources.get(self.fuel_type, 0) + self.fuel_remaining
+            if available < fuel_leg: return False
+            net = fuel_leg - self.fuel_remaining
+            self.home.resources[self.fuel_type] = self.home.resources.get(self.fuel_type, 0) - net
+            self.fuel_remaining = fuel_leg
         self._patrol_dest = (wx, wy)
         self._dock_planet = dock_planet
         self._pre_combat_dest = None
@@ -335,7 +364,15 @@ class Ship:
                     self.home = self._dock_planet
                     if self not in self.home.ships:
                         self.home.ships.append(self)
-                self._refund_fuel()
+                    # Refuel combat ships from the dock planet's resources
+                    if self.fuel_capacity is not None:
+                        needed = self.fuel_capacity - self.fuel_remaining
+                        available = self.home.resources.get(self.fuel_type, 0)
+                        amount = min(needed, available)
+                        self.home.resources[self.fuel_type] -= amount
+                        self.fuel_remaining += amount
+                if self.fuel_capacity is None:
+                    self._refund_fuel()  # non-combat ships return unused fuel to home
                 self._patrol_dest = None
                 self._dock_planet = None
                 self.state = MISSION_IDLE
