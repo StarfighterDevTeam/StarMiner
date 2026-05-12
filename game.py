@@ -355,7 +355,7 @@ class Game:
         Blocked directions pin to the ship position, naturally producing the
         sector/camembert cutoff seen when fuel is low or colonies are one-sided.
         """
-        if ship.fuel_capacity is None or ship.fuel_remaining <= 0:
+        if ship.fuel_capacity is None or ship.fuel_remaining < 1.0:
             return
         R = ship.fuel_remaining / ship.fuel_rate
         colonies = [

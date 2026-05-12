@@ -117,6 +117,17 @@ class Planet:
             if self.resources[res] > cap:
                 self.resources[res] = cap
 
+        # Auto-refuel combat ships docked here whenever fuel is available
+        for s in self.ships:
+            if (s.fuel_capacity is not None and s.is_docked
+                    and s.fuel_remaining < s.fuel_capacity):
+                needed = s.fuel_capacity - s.fuel_remaining
+                available = self.resources.get(s.fuel_type, 0)
+                amount = min(needed, available)
+                if amount > 0:
+                    self.resources[s.fuel_type] -= amount
+                    s.fuel_remaining += amount
+
         # Build / upgrade queue
         if self.build_queue:
             entry = self.build_queue[0]

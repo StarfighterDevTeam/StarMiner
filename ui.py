@@ -983,9 +983,12 @@ class PlanetUI:
                 bx = right - n * 76 - (n - 1) * 6 - 4
                 for mi, mtype in enumerate(missions):
                     is_active = (patrol_mode_ship is ship) if mtype == "patrol" else (self._mission_mode == (mtype, ship))
+                    enabled = not (mtype == "patrol"
+                                   and ship.fuel_capacity is not None
+                                   and ship.fuel_remaining < 1.0)
                     btn = Button((bx + mi * 82, ry + 10, 76, 20),
                                  _MISSION_LABELS.get(mtype, mtype.capitalize()),
-                                 tooltip=f"{mtype}:{ship.id}", active=is_active)
+                                 tooltip=f"{mtype}:{ship.id}", active=is_active, enabled=enabled)
                     btn.handle_mouse(mouse_pos); btn.draw(surface)
                     self._buttons.append(btn)
             elif ship.state in ("patrol", "combat"):
@@ -1024,6 +1027,19 @@ class PlanetUI:
             if cargo_total > 0:
                 cargo_str = "  ".join(f"{int(v)} {r[:RESOURCE_MAX_CHAR]}" for r, v in ship.cargo.items() if v > 0)
                 surface.blit(sf.render(f"Cargo: {cargo_str}", True, GOLD), (pr.x + 12, ry + 36))
+
+            if ship.fuel_capacity is not None:
+                ratio = max(0.0, min(1.0, ship.fuel_remaining / ship.fuel_capacity))
+                fc = RED if ratio < 0.1 else (ORANGE if ratio < 0.25 else CYAN)
+                tank_lbl = f"Réservoir : {ship.fuel_remaining:.0f} / {ship.fuel_capacity} {ship.fuel_type}"
+                surface.blit(_font(9).render(tank_lbl, True, fc), (pr.x + 12, ry + 36))
+                bar_x, bar_y = pr.x + 12, ry + 47
+                bar_w, bar_h = content_w - 6, 4
+                pygame.draw.rect(surface, (22, 28, 48), (bar_x, bar_y, bar_w, bar_h), border_radius=2)
+                fw = int(bar_w * ratio)
+                if fw > 0:
+                    pygame.draw.rect(surface, fc, (bar_x, bar_y, fw, bar_h), border_radius=2)
+                pygame.draw.rect(surface, (40, 55, 80), (bar_x, bar_y, bar_w, bar_h), 1, border_radius=2)
 
             eta_data = _mission_eta(ship)
             if eta_data:
