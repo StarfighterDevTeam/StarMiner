@@ -125,5 +125,8 @@ SHIP_DEFS = {
                    "hp": 600, "damage": 80, "fire_range": 550, "fire_rate": 0.3, "fuel_type": "deuterium", "fuel_rate": 0.004},
     }
 
+# Mission types that are one-way (ship does not return to home after completing)
+MISSION_ONE_WAY = frozenset({"explore", "colonize", "highway"})
+
 # Starting resources for player's first planet
 START_RESOURCES = {"iron": 5000, "gold": 1000, "silver": 800, "oil": 50, "deuterium": 30}

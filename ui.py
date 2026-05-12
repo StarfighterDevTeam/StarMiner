@@ -19,7 +19,7 @@ def _mission_eta(ship):
     if ship.state == MISSION_IDLE or ship.target_planet is None:
         return None
     mtype = getattr(ship, "_mission_type", None)
-    one_way_mission = mtype in ("explore", "colonize", "highway")
+    one_way_mission = mtype in MISSION_ONE_WAY
     if mtype == "mine":
         mdur = getattr(ship, "_mine_duration", 8.0)
     elif mtype == "explore":
@@ -571,7 +571,7 @@ class PlanetUI:
             mission_dur = 0.0
 
         from ship import MINE_RESOURCES, PUMP_RESOURCES
-        one_way = mtype in ("explore", "colonize", "highway")
+        one_way = mtype in MISSION_ONE_WAY
         total = travel_to + mission_dur + (0 if one_way else travel_back)
 
         lines = []
@@ -940,8 +940,18 @@ class PlanetUI:
                 btn.handle_mouse(mouse_pos); btn.draw(surface)
                 self._buttons.append(btn)
             elif ship.state in ("travel", "discovering", "mining"):
+                _one_way = getattr(ship, "_mission_type", None) in MISSION_ONE_WAY
+                if _one_way:
+                    if ship.state == "travel" and ship.target_planet:
+                        _d_home   = math.hypot(ship.x - ship.home.x, ship.y - ship.home.y)
+                        _d_target = math.hypot(ship.x - ship.target_planet.x, ship.y - ship.target_planet.y)
+                        _can_cancel = _d_home < _d_target
+                    else:
+                        _can_cancel = False  # already at destination, past PNR (Point of No Return)
+                else:
+                    _can_cancel = True
                 btn = Button((right - 84, ry + 10, 80, 20),
-                             "Annuler", tooltip=f"cancel_mission:{ship.id}")
+                             "Annuler", tooltip=f"cancel_mission:{ship.id}", enabled=_can_cancel)
                 btn.handle_mouse(mouse_pos); btn.draw(surface)
                 self._buttons.append(btn)
 
@@ -1480,8 +1490,19 @@ class ShipUI:
         has_cancel = s.state in (MISSION_TRAVEL, MISSION_DISCOVER, MISSION_MINE)
         has_repeat = s.type in ("Miner", "Tanker")
         if has_cancel:
+            _one_way = getattr(s, "_mission_type", None) in MISSION_ONE_WAY
+            if _one_way:
+                if s.state == MISSION_TRAVEL and s.target_planet:
+                    _d_home   = math.hypot(s.x - s.home.x, s.y - s.home.y)
+                    _d_target = math.hypot(s.x - s.target_planet.x, s.y - s.target_planet.y)
+                    _can_cancel = _d_home < _d_target
+                else:
+                    _can_cancel = False  # already at destination, past PNR
+            else:
+                _can_cancel = True
             cancel_btn = Button((pr.x + pr.w // 2 - 70, y + 2, 140, 20),
-                                "Annuler mission", tooltip="cancel_mission")
+                                "Annuler mission", tooltip="cancel_mission",
+                                enabled=_can_cancel)
             cancel_btn.handle_mouse(pygame.mouse.get_pos())
             cancel_btn.draw(surface)
             self._buttons.append(cancel_btn)
@@ -1585,6 +1606,16 @@ class ShipUI:
             low = s.fuel_remaining < 10 or s.fuel_remaining < fav * 0.15
             fc = ORANGE if low else CYAN
             moving = s.state in (MISSION_TRAVEL, MISSION_RETURN, MISSION_PATROL)
-            label = "En transit" if moving else "Réservé  "
+            _mtype = getattr(s, "_mission_type", None)
+            _past_pnr = (
+                _mtype in MISSION_ONE_WAY
+                and s.state == MISSION_TRAVEL
+                and s.target_planet is not None
+                and math.hypot(s.x - s.home.x, s.y - s.home.y)
+                    >= math.hypot(s.x - s.target_planet.x, s.y - s.target_planet.y)
+            )
+            label = ("En transit (Point of No Return reached)" if _past_pnr
+                     else "En transit" if moving
+                     else "Réservé    ")
             rem_t = _font(10).render(f"{label} : {s.fuel_remaining:.0f} {s.fuel_type}", True, fc)
             surface.blit(rem_t, (pr.x + 12, y))
