@@ -16,9 +16,23 @@ def _mission_eta(ship):
     """Returns (remaining_secs, total_secs) for the full mission, or None."""
     import math
     from ship import MISSION_IDLE, MISSION_TRAVEL, MISSION_DISCOVER, MISSION_MINE, MISSION_RETURN
-    if ship.state == MISSION_IDLE or ship.target_planet is None:
+    if ship.state == MISSION_IDLE:
         return None
     mtype = getattr(ship, "_mission_type", None)
+    if ship.target_planet is None and mtype != "collect":
+        return None
+    if mtype == "collect":
+        spd    = max(getattr(ship, "_effective_speed", ship.speed), 1)
+        debris = getattr(ship, "_collect_debris", None)
+        if ship.state == MISSION_TRAVEL and debris:
+            d_to  = math.hypot(ship.home.x - debris.x, ship.home.y - debris.y) / spd
+            total = d_to * 2
+            rem   = math.hypot(ship.x - debris.x, ship.y - debris.y) / spd + d_to
+            return (max(0.0, rem), max(total, 0.001))
+        if ship.state == MISSION_RETURN:
+            rem = math.hypot(ship.x - ship.home.x, ship.y - ship.home.y) / spd
+            return (max(0.0, rem), max(rem, 0.001))
+        return None
     one_way_mission = mtype in MISSION_ONE_WAY
     if mtype == "mine":
         mdur = getattr(ship, "_mine_duration", 8.0)
@@ -104,12 +118,16 @@ class PlanetUI:
         self._planet_tabs: dict = {}  # planet.id → last active tab
         self._sb_drag = None          # scrollbar drag state
         self._sb_info: dict = {}      # scrollbar geometry per tab (set during draw)
+        self._transport_cfg   = None  # {"ship": Ship, "outbound": set, "inbound": set, "repeat": bool}
+        self._collect_request = None  # Ship requesting collect mode (promoted by game.py)
 
     def open(self, planet):
         self.planet = planet
         self.visible = True
         self._tab = self._planet_tabs.get(planet.id, "buildings")
-        self._mission_mode = None
+        self._mission_mode    = None
+        self._transport_cfg   = None
+        self._collect_request = None
         self._build_scroll = 0
         self._ship_scroll  = 0
         self._fleet_scroll = 0
@@ -117,7 +135,9 @@ class PlanetUI:
     def close(self):
         self.visible = False
         self.planet = None
-        self._mission_mode = None
+        self._mission_mode    = None
+        self._transport_cfg   = None
+        self._collect_request = None
         self._sb_drag = None
 
     @property
@@ -308,6 +328,53 @@ class PlanetUI:
                 self._patrol_request = ship
                 self.show_message("Cliquez sur la carte pour définir la destination")
 
+        elif tag.startswith("transport_open:"):
+            sid  = int(tag[15:])
+            ship = next((s for s in p.ships if s.id == sid), None)
+            if ship:
+                if self._transport_cfg and self._transport_cfg["ship"].id == sid:
+                    self._transport_cfg = None
+                else:
+                    self._transport_cfg = {
+                        "ship": ship, "outbound": set(), "inbound": set(), "repeat": False
+                    }
+
+        elif tag.startswith("transport_out:"):
+            _, sid_s, res = tag.split(":")
+            if self._transport_cfg and self._transport_cfg["ship"].id == int(sid_s):
+                cfg = self._transport_cfg
+                cfg["outbound"].discard(res) if res in cfg["outbound"] else cfg["outbound"].add(res)
+
+        elif tag.startswith("transport_in:"):
+            _, sid_s, res = tag.split(":")
+            if self._transport_cfg and self._transport_cfg["ship"].id == int(sid_s):
+                cfg = self._transport_cfg
+                cfg["inbound"].discard(res) if res in cfg["inbound"] else cfg["inbound"].add(res)
+
+        elif tag.startswith("transport_repeat:"):
+            sid = int(tag[17:])
+            if self._transport_cfg and self._transport_cfg["ship"].id == sid:
+                self._transport_cfg["repeat"] = not self._transport_cfg["repeat"]
+
+        elif tag.startswith("transport_confirm:"):
+            sid = int(tag[18:])
+            if self._transport_cfg and self._transport_cfg["ship"].id == sid:
+                cfg  = self._transport_cfg
+                ship = cfg["ship"]
+                if not cfg["outbound"]:
+                    self.show_message("Sélectionnez au moins une ressource A→B")
+                    return
+                ship.repeat = cfg["repeat"]
+                self._mission_mode = ("transport", ship)
+                self.show_message("Cliquez sur une planète colonisée pour la destination")
+
+        elif tag.startswith("collect:"):
+            sid  = int(tag[8:])
+            ship = next((s for s in p.ships if s.id == sid), None)
+            if ship:
+                self._collect_request = ship
+                self.show_message("Cliquez sur un débris visible pour le collecter")
+
         elif tag.startswith(("explore:", "mine:", "pump:", "colonize:", "highway:")):
             mtype, sid = tag.split(":")
             ship = next((s for s in p.ships if s.id == int(sid)), None)
@@ -371,6 +438,26 @@ class PlanetUI:
             if highways is not None and frozenset({ship.home.id, target_planet.id}) in highways:
                 self.show_message(f"Autoroute déjà existante vers {target_planet.name}")
                 return
+        if mtype == "transport":
+            if target_planet is ship.home:
+                self.show_message("Même planète — choisissez une autre")
+                return
+            if not target_planet.colonized:
+                self.show_message("La planète doit être colonisée")
+                return
+            if self._transport_cfg is None or self._transport_cfg["ship"] is not ship:
+                self.show_message("Configuration perdue — recommencez")
+                self._mission_mode = None
+                return
+            cfg      = self._transport_cfg
+            outbound = list(cfg["outbound"])
+            inbound  = list(cfg["inbound"]) if cfg["repeat"] else []
+            self._mission_mode  = None
+            self._transport_cfg = None
+            ok = ship.send_transport(target_planet, outbound, inbound)
+            self.show_message(
+                f"Transport → {target_planet.name}" if ok else "Transport impossible (carburant ?)")
+            return
 
         self._mission_mode = None
         if mtype == "explore":
@@ -546,6 +633,10 @@ class PlanetUI:
             if not (planet.explored and planet.habitable and not planet.colonized): return False
         elif mtype == "highway":
             if not planet.colonized or has_highway: return False
+        elif mtype == "transport":
+            if not planet.colonized: return False
+            if planet is ship.home:  return False
+            return ship.has_fuel_for("transport", planet)
         return ship.has_fuel_for(mtype, planet)
 
     def draw_mission_hover(self, surface, planet, camera, highways=None, patrol_ship=None):
@@ -603,6 +694,10 @@ class PlanetUI:
             error = ("Planète non colonisée", RED)
         elif mtype == "highway" and has_highway:
             error = ("Autoroute déjà existante", ORANGE)
+        elif mtype == "transport" and not planet.colonized:
+            error = ("Planète non colonisée", RED)
+        elif mtype == "transport" and planet is ship.home:
+            error = ("Même planète", RED)
 
         # Fuel check — patrol draws from current position and may reuse existing fuel
         if mtype == "patrol":
@@ -909,6 +1004,12 @@ class PlanetUI:
                              pr.x + pr.w - 6 - SB_W, y, visible_h,
                              total_h, visible_h, scroll_offset, max_scroll)
 
+    def _fleet_row_h(self, ship):
+        if (self._transport_cfg is not None
+                and self._transport_cfg["ship"].id == ship.id):
+            return 130
+        return 70
+
     def _draw_fleet(self, surface, pr, y, p, patrol_mode_ship=None):
         f = _font(12)
         sf = _font(10)
@@ -917,17 +1018,16 @@ class PlanetUI:
             surface.blit(t, (pr.x + 20, y + 10))
             return
 
-        row_h = 70
-        SB_W = 7
+        SB_W      = 7
         content_w = pr.w - 12 - SB_W - 2
-        right = pr.x + 6 + content_w
-        total_h = len(p.ships) * row_h
+        right     = pr.x + 6 + content_w
+        total_h   = sum(self._fleet_row_h(s) for s in p.ships)
         visible_h = pr.y + pr.h - 202 - 14 - y
 
-        max_scroll = max(0, (total_h - visible_h) // row_h + 1)
+        max_scroll        = max(0, (total_h - visible_h) // 70 + 1)
         self._fleet_scroll = max(0, min(self._fleet_scroll, max_scroll))
-        scroll_offset = self._fleet_scroll * row_h
-        ry = y - scroll_offset + 4
+        scroll_offset     = self._fleet_scroll * 70
+        ry                = y - scroll_offset + 4
 
         _MISSION_LABELS = {"explore": "Explorer", "mine": "Extraire", "pump": "Pomper",
                            "colonize": "Coloniser", "patrol": "Patrouille",
@@ -935,15 +1035,16 @@ class PlanetUI:
         mouse_pos = pygame.mouse.get_pos()
 
         for ship in p.ships:
-            if ry + row_h < y or ry > y + visible_h:
-                ry += row_h
+            rh = self._fleet_row_h(ship)
+            if ry + rh < y or ry > y + visible_h:
+                ry += rh
                 continue
 
             here = ship.is_docked
             bg_color  = (14, 30, 18) if here else (20, 25, 40)
             brd_color = (50, 160, 80) if here else UI_BORDER
-            pygame.draw.rect(surface, bg_color,  (pr.x + 6, ry + 2, content_w, row_h - 4), border_radius=4)
-            pygame.draw.rect(surface, brd_color, (pr.x + 6, ry + 2, content_w, row_h - 4), 1, border_radius=4)
+            pygame.draw.rect(surface, bg_color,  (pr.x + 6, ry + 2, content_w, rh - 4), border_radius=4)
+            pygame.draw.rect(surface, brd_color, (pr.x + 6, ry + 2, content_w, rh - 4), 1, border_radius=4)
 
             # Line 1 – name + dock badge
             nt = f.render(f"{ship.type} #{ship.id}", True, CYAN)
@@ -974,6 +1075,16 @@ class PlanetUI:
                     "returning":  ("Retour base",  GREEN),
                     "exploring":  ("Exploration",  CYAN),
                 }.get(ship.state, (ship.state, WHITE))
+                mission_type_now = getattr(ship, "_mission_type", None)
+                if mission_type_now == "transport" and ship.state in ("travel", "returning"):
+                    tp   = getattr(ship, "_transport_target", None)
+                    leg  = getattr(ship, "_transport_leg", "out")
+                    badge = "[A→B]" if leg == "out" else "[B→A]"
+                    if ship.state == "travel" and tp:
+                        st_txt = f"Transport → {tp.name} {badge}"
+                    else:
+                        st_txt = f"Retour {badge}"
+                    st_col = CYAN
             surface.blit(sf.render(st_txt, True, st_col), (pr.x + 12, ry + 22))
 
             if ship.state == "idle":
@@ -990,6 +1101,19 @@ class PlanetUI:
                                  tooltip=f"{mtype}:{ship.id}", active=is_active, enabled=enabled)
                     btn.handle_mouse(mouse_pos); btn.draw(surface)
                     self._buttons.append(btn)
+                if SHIP_DEFS[ship.type].get("capacity", 0) > 0:
+                    cbtn = Button((right - 80, ry + 32, 76, 16),
+                                  "Collecter", tooltip=f"collect:{ship.id}")
+                    cbtn.handle_mouse(mouse_pos); cbtn.draw(surface)
+                    self._buttons.append(cbtn)
+                    is_cfg_open = (self._transport_cfg is not None
+                                   and self._transport_cfg["ship"].id == ship.id)
+                    tbtn = Button((right - 160, ry + 32, 76, 16),
+                                  "Transport",
+                                  tooltip=f"transport_open:{ship.id}",
+                                  active=is_cfg_open)
+                    tbtn.handle_mouse(mouse_pos); tbtn.draw(surface)
+                    self._buttons.append(tbtn)
             elif ship.state in ("patrol", "combat"):
                 patrol_btn = Button((right - 164, ry + 10, 76, 20),
                                     "Patrouille", tooltip=f"patrol:{ship.id}",
@@ -1055,7 +1179,51 @@ class PlanetUI:
                     pygame.draw.rect(surface, state_color, (bar_x, bar_y, fw, bar_h), border_radius=2)
                 pygame.draw.rect(surface, (40, 55, 80), (bar_x, bar_y, bar_w, bar_h), 1, border_radius=2)
 
-            ry += row_h
+            # Transport config expansion panel
+            if rh > 70 and self._transport_cfg and self._transport_cfg["ship"].id == ship.id:
+                cfg     = self._transport_cfg
+                base_y  = ry + 68
+                label_f = _font(10)
+                res_list = RESOURCE_NAMES
+                tog_w, tog_h, tog_gap = 30, 14, 3
+
+                surface.blit(label_f.render("A→B:", True, CYAN), (pr.x + 10, base_y + 2))
+                for ri, res in enumerate(res_list):
+                    rx2    = pr.x + 46 + ri * (tog_w + tog_gap)
+                    active = res in cfg["outbound"]
+                    tog = Button((rx2, base_y, tog_w, tog_h),
+                                 res[:3].upper(),
+                                 tooltip=f"transport_out:{ship.id}:{res}",
+                                 active=active)
+                    tog.handle_mouse(mouse_pos); tog.draw(surface)
+                    self._buttons.append(tog)
+
+                rep_btn = Button((pr.x + 10, base_y + 18, 60, 14),
+                                 "Repeat", tooltip=f"transport_repeat:{ship.id}",
+                                 active=cfg["repeat"])
+                rep_btn.handle_mouse(mouse_pos); rep_btn.draw(surface)
+                self._buttons.append(rep_btn)
+
+                if cfg["repeat"]:
+                    surface.blit(label_f.render("B→A:", True, ORANGE), (pr.x + 80, base_y + 20))
+                    for ri, res in enumerate(res_list):
+                        rx2    = pr.x + 116 + ri * (tog_w + tog_gap)
+                        active = res in cfg["inbound"]
+                        tog = Button((rx2, base_y + 17, tog_w, tog_h),
+                                     res[:3].upper(),
+                                     tooltip=f"transport_in:{ship.id}:{res}",
+                                     active=active)
+                        tog.handle_mouse(mouse_pos); tog.draw(surface)
+                        self._buttons.append(tog)
+
+                conf_btn = Button((right - 100, base_y + 17, 96, 18),
+                                  "► Destination",
+                                  enabled=bool(cfg["outbound"]),
+                                  tooltip=f"transport_confirm:{ship.id}")
+                conf_btn.handle_mouse(mouse_pos); conf_btn.draw(surface)
+                self._buttons.append(conf_btn)
+
+            ry += rh
 
         self._draw_scrollbar(surface, "fleet", "_fleet_scroll",
                              pr.x + pr.w - 6 - SB_W, y - 4, visible_h,

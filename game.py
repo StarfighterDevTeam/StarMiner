@@ -7,6 +7,7 @@ from space_map import SpaceMap
 from planet import generate_planets
 from ship import Ship
 from ui import PlanetUI, ShipUI, ColonyBar
+from debris import Debris
 
 def _draw_dashed_line(surface, color, start, end, dash=8, gap=5, width=1):
     x1, y1 = start
@@ -57,6 +58,11 @@ class Game:
         self._visible_enemies = set()
         self._hud_msg = ""
         self._hud_msg_timer = 0.0
+        self.debris_list: list = []
+        self._visible_debris: set = set()
+        self._collect_mode_ship = None
+        self._hovered_debris = None
+        self._spawn_initial_debris()
 
     # ── enemy management ─────────────────────────────────────────
     def _spawn_initial_enemies(self):
@@ -107,6 +113,48 @@ class Game:
                 s.fuel_remaining = s.fuel_capacity
             self.enemy_ships.append(s)
 
+    def _spawn_initial_debris(self):
+        rng  = random.Random(99)
+        home = self.planets[0]
+        for _ in range(10):
+            for _attempt in range(20):
+                x = rng.randint(800, WORLD_W - 800)
+                y = rng.randint(800, WORLD_H - 800)
+                if math.hypot(x - home.x, y - home.y) > 2000:
+                    break
+            res_count = rng.randint(1, 3)
+            res_names = rng.sample(RESOURCE_NAMES, res_count)
+            resources = {r: float(rng.randint(10, 80)) for r in res_names}
+            self.debris_list.append(Debris(float(x), float(y), resources))
+
+    def _spawn_debris_from_ship(self, ship):
+        resources = {}
+        defn = SHIP_DEFS.get(ship.type, {})
+        for res, amt in defn.get("cost", {}).items():
+            if res in RESOURCE_NAMES:
+                resources[res] = resources.get(res, 0.0) + amt * 0.3
+        for res, amt in ship.cargo.items():
+            if amt > 0:
+                resources[res] = resources.get(res, 0.0) + amt
+        if resources:
+            self.debris_list.append(Debris(ship.x, ship.y, resources))
+
+    def _compute_visible_debris(self):
+        r2      = DETECTION_RANGE * DETECTION_RANGE
+        visible = set()
+        for d in self.debris_list:
+            for pl in self.planets:
+                if pl.colonized and (d.x - pl.x) ** 2 + (d.y - pl.y) ** 2 <= r2:
+                    visible.add(d)
+                    break
+            if d in visible:
+                continue
+            for ps in self.ships:
+                if (d.x - ps.x) ** 2 + (d.y - ps.y) ** 2 <= r2:
+                    visible.add(d)
+                    break
+        return visible
+
     def _update_enemies(self, dt, all_ships):
         for s in self.enemy_ships:
             if s._destroyed:
@@ -119,6 +167,9 @@ class Game:
                 wy = random.randint(500, WORLD_H - 500)
                 s.send_patrol(wx, wy)
 
+        for s in self.enemy_ships:
+            if s._destroyed:
+                self._spawn_debris_from_ship(s)
         self.enemy_ships = [s for s in self.enemy_ships if not s._destroyed]
 
     # ── main loop ────────────────────────────────────────────────
@@ -143,6 +194,8 @@ class Game:
             if event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
                 if self._patrol_mode_ship:
                     self._patrol_mode_ship = None
+                elif self._collect_mode_ship:
+                    self._collect_mode_ship = None
                 elif self.ui._mission_mode:
                     self.ui._mission_mode = None
                     self.ui.show_message("Mission annulée")
@@ -208,6 +261,33 @@ class Game:
                     self.camera.handle_event(event)
                 continue
 
+            # Collect mode: next click on visible debris dispatches ship
+            if self._collect_mode_ship:
+                if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                    on_ui = (
+                        (self.ui.visible and self.ui.panel_rect.collidepoint((mx, my)))
+                        or (self.ship_ui.visible
+                            and self.ship_ui.panel_rect.collidepoint((mx, my)))
+                        or self.colony_bar.contains_point((mx, my), self.planets)
+                    )
+                    if not on_ui:
+                        clicked_debris = next(
+                            (d for d in self._visible_debris
+                             if d.is_clicked(mx, my, self.camera)),
+                            None,
+                        )
+                        if clicked_debris:
+                            ship = self._collect_mode_ship
+                            self._collect_mode_ship = None
+                            ok = ship.send_collect(clicked_debris)
+                            if not ok:
+                                self._hud_msg = "Carburant insuffisant pour collecter"
+                                self._hud_msg_timer = 3.0
+                        continue
+                else:
+                    self.camera.handle_event(event)
+                continue
+
             # Ship UI events (intercepts clicks on its panel)
             ship_ev = self.ship_ui.handle_event(event)
             if ship_ev == "patrol_requested":
@@ -223,6 +303,9 @@ class Game:
                 if self.ui._patrol_request:
                     self._patrol_mode_ship = self.ui._patrol_request
                     self.ui._patrol_request = None
+                if self.ui._collect_request:
+                    self._collect_mode_ship = self.ui._collect_request
+                    self.ui._collect_request = None
                 continue
 
             # Mission target selection: only left-click picks a planet
@@ -296,9 +379,14 @@ class Game:
         for s in self.ships:
             s.update(dt, self.planets, self.highways, all_ships)
         self._update_enemies(dt, all_ships)
+        for s in self.ships:
+            if s._destroyed:
+                self._spawn_debris_from_ship(s)
         self.ships = [s for s in self.ships if not s._destroyed]
 
         self._visible_enemies = self._compute_visible_enemies()
+        self._visible_debris  = self._compute_visible_debris()
+        self.debris_list = [d for d in self.debris_list if not d._collected]
 
         mx, my = pygame.mouse.get_pos()
         in_planet_panel = self.ui.visible and self.ui.panel_rect.collidepoint(mx, my)
@@ -318,6 +406,15 @@ class Game:
             self._hovered_planet = next(
                 (p for p in self.planets if p.is_clicked(mx, my, self.camera)), None)
 
+        self._hovered_debris = None
+        if (not self._hovered_ship and not self._hovered_planet
+                and not in_planet_panel and not in_ship_panel and not in_colony_bar):
+            mx2, my2 = pygame.mouse.get_pos()
+            self._hovered_debris = next(
+                (d for d in self._visible_debris if d.is_clicked(mx2, my2, self.camera)),
+                None,
+            )
+
     # ── draw ─────────────────────────────────────────────────────
     def _draw(self):
         self.space_map.draw(self.screen, self.camera)
@@ -335,6 +432,8 @@ class Game:
                 s.draw(self.screen, self.camera)
         for s in self._visible_enemies:
             s.draw(self.screen, self.camera)
+        for d in self._visible_debris:
+            d.draw(self.screen, self.camera, hovered=(d is self._hovered_debris))
         if self._hovered_ship:
             self._hovered_ship.draw_hover(self.screen, self.camera)
         # Range circle for combat ships (patrol mode or selected in ShipUI)
@@ -359,6 +458,7 @@ class Game:
                              mission_mode=bool(self.ui._mission_mode))
         self._draw_mission_dash()
         self._draw_patrol_overlay()
+        self._draw_collect_overlay()
         self._draw_hud()
         pygame.display.flip()
 
@@ -452,6 +552,21 @@ class Game:
         surface.fill((10, 10, 30, 180))
         self.screen.blit(surface, (x - 10, 14))
         self.screen.blit(t, (x, 18))
+
+    def _draw_collect_overlay(self):
+        if not self._collect_mode_ship:
+            return
+        try:
+            font = pygame.font.SysFont("consolas", 14)
+        except Exception:
+            font = pygame.font.Font(None, 16)
+        msg  = ">> Cliquez sur un débris visible pour le collecter  |  ESC pour annuler <<"
+        t    = font.render(msg, True, (200, 180, 60))
+        x    = SCREEN_W // 2 - t.get_width() // 2
+        surf = pygame.Surface((t.get_width() + 20, t.get_height() + 8), pygame.SRCALPHA)
+        surf.fill((10, 10, 30, 180))
+        self.screen.blit(surf, (x - 10, 38))
+        self.screen.blit(t, (x, 42))
 
     def _draw_detection_radii(self):
         """Gray semi-transparent circles showing detection range (SECTOR_SIZE) around player assets."""

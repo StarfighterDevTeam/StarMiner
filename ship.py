@@ -81,6 +81,15 @@ class Ship:
         self._destroyed = False
         self.repeat = False
 
+        # Transport mission fields
+        self._transport_target   = None   # destination planet B
+        self._transport_outbound = []     # resource types to carry A→B
+        self._transport_inbound  = []     # resource types to carry B→A (repeat)
+        self._transport_leg      = "out"  # "out" | "in"
+
+        # Collect mission field
+        self._collect_debris     = None   # Debris reference
+
         # Faction display
         fdef = FACTION_DEFS.get(faction, FACTION_DEFS["player"])
         self.faction_name = fdef["name"]
@@ -115,7 +124,7 @@ class Ship:
     # ── fuel helpers ─────────────────────────────────────────────
     def fuel_cost(self, mtype, target):
         dist = math.hypot(self.home.x - target.x, self.home.y - target.y)
-        return dist * self.fuel_rate * (2.0 if mtype in ("mine", "pump") else 1.0)
+        return dist * self.fuel_rate * (2.0 if mtype in ("mine", "pump", "transport") else 1.0)
 
     def has_fuel_for(self, mtype, target):
         return self.home.resources.get(self.fuel_type, 0) >= self.fuel_cost(mtype, target)
@@ -213,6 +222,47 @@ class Ship:
         self._mission_type = "highway"
         return True
 
+    def _load_cargo_from(self, planet, res_types):
+        if not res_types:
+            return
+        per_res = self.capacity / len(res_types)
+        for res in res_types:
+            avail = planet.resources.get(res, 0.0)
+            amount = min(per_res, avail)
+            if amount > 0:
+                self.cargo[res] = self.cargo.get(res, 0.0) + amount
+                planet.resources[res] = avail - amount
+
+    def send_transport(self, target, outbound_res, inbound_res=None):
+        if self.state != MISSION_IDLE: return False
+        if self.capacity <= 0: return False
+        if not target.colonized or target is self.home: return False
+        fuel = self.fuel_cost("transport", target)
+        if self.home.resources.get(self.fuel_type, 0) < fuel: return False
+        self._load_fuel(fuel)
+        self._load_cargo_from(self.home, list(outbound_res))
+        self._transport_target   = target
+        self._transport_outbound = list(outbound_res)
+        self._transport_inbound  = list(inbound_res) if inbound_res else []
+        self._transport_leg      = "out"
+        self.target_planet       = target
+        self.state               = MISSION_TRAVEL
+        self._mission_type       = "transport"
+        return True
+
+    def send_collect(self, debris):
+        if self.state != MISSION_IDLE: return False
+        if self.capacity <= 0: return False
+        dist = math.hypot(self.home.x - debris.x, self.home.y - debris.y)
+        fuel = dist * self.fuel_rate * 2.0
+        if self.home.resources.get(self.fuel_type, 0) < fuel: return False
+        self._load_fuel(fuel)
+        self._collect_debris = debris
+        self.target_planet   = None
+        self.state           = MISSION_TRAVEL
+        self._mission_type   = "collect"
+        return True
+
     def send_patrol(self, wx, wy, dock_planet=None, planets=None):
         if self.state not in (MISSION_IDLE, MISSION_PATROL, MISSION_COMBAT): return False
         fuel_leg = self.fuel_cost_patrol(wx, wy)
@@ -283,13 +333,37 @@ class Ship:
             return
 
         if self.state == MISSION_TRAVEL:
+            if self._mission_type == "collect" and self._collect_debris:
+                tx, ty = self._collect_debris.x, self._collect_debris.y
+            else:
+                tx, ty = self.target_planet.x, self.target_planet.y
             speed = self._travel_speed(highways)
-            self._move_toward(self.target_planet.x, self.target_planet.y, dt, speed)
-            dist = math.hypot(self.x - self.target_planet.x, self.y - self.target_planet.y)
+            self._move_toward(tx, ty, dt, speed)
+            dist = math.hypot(self.x - tx, self.y - ty)
             if dist < 40:
-                self.x = self.target_planet.x
-                self.y = self.target_planet.y
-                if self._mission_type == "explore":
+                self.x = tx
+                self.y = ty
+                if self._mission_type == "collect":
+                    space = self.capacity - sum(self.cargo.values())
+                    for res, amt in list(self._collect_debris.resources.items()):
+                        take = min(amt, space)
+                        if take > 0:
+                            self.cargo[res] += take
+                            space -= take
+                    self._collect_debris._collected = True
+                    self._collect_debris = None
+                    self.state = MISSION_RETURN
+                elif self._mission_type == "transport":
+                    for res, amt in self.cargo.items():
+                        if amt > 0:
+                            self._transport_target.resources[res] = (
+                                self._transport_target.resources.get(res, 0.0) + amt)
+                    self.cargo = {r: 0.0 for r in RESOURCE_NAMES}
+                    if self.repeat and self._transport_inbound:
+                        self._load_cargo_from(self._transport_target, self._transport_inbound)
+                    self._transport_leg = "in"
+                    self.state = MISSION_RETURN
+                elif self._mission_type == "explore":
                     self.state = MISSION_DISCOVER
                     self._discover_timer = self._discover_duration
                 elif self._mission_type in ("mine", "pump"):
@@ -338,7 +412,6 @@ class Ship:
                 self.x = self.home.x
                 self.y = self.home.y
                 self._refund_fuel()
-                # Unload cargo
                 for res, amt in self.cargo.items():
                     self.home.resources[res] = self.home.resources.get(res, 0) + amt
                 self.cargo = {r: 0.0 for r in RESOURCE_NAMES}
@@ -351,6 +424,12 @@ class Ship:
                         self.send_pump(prev_target)
                     else:
                         self.send_mine(prev_target)
+                elif self.repeat and prev_mtype == "transport" and self._transport_target:
+                    self.send_transport(
+                        self._transport_target,
+                        self._transport_outbound,
+                        self._transport_inbound,
+                    )
 
         elif self.state == MISSION_PATROL:
             # Enter combat if enemy spotted
@@ -538,6 +617,11 @@ class Ship:
         if self.state in (MISSION_TRAVEL, MISSION_MINE) and self.target_planet:
             tx, ty = camera.world_to_screen(self.target_planet.x, self.target_planet.y)
             pygame.draw.line(surface, (*CYAN, 60), (sx, sy), (tx, ty), 1)
+        elif (self.state == MISSION_TRAVEL and self._mission_type == "collect"
+              and self._collect_debris):
+            tx, ty = camera.world_to_screen(
+                self._collect_debris.x, self._collect_debris.y)
+            pygame.draw.line(surface, (*CYAN, 60), (sx, sy), (tx, ty), 1)
         elif self.state == MISSION_RETURN:
             tx, ty = camera.world_to_screen(self.home.x, self.home.y)
             pygame.draw.line(surface, (*CYAN, 60), (sx, sy), (tx, ty), 1)
@@ -557,8 +641,13 @@ class Ship:
 
         # ETA label while moving toward a destination
         if self.state in (MISSION_TRAVEL, MISSION_RETURN):
-            dest_x = self.target_planet.x if self.state == MISSION_TRAVEL else self.home.x
-            dest_y = self.target_planet.y if self.state == MISSION_TRAVEL else self.home.y
+            if (self.state == MISSION_TRAVEL and self._mission_type == "collect"
+                    and self._collect_debris):
+                dest_x, dest_y = self._collect_debris.x, self._collect_debris.y
+            elif self.state == MISSION_TRAVEL and self.target_planet:
+                dest_x, dest_y = self.target_planet.x, self.target_planet.y
+            else:
+                dest_x, dest_y = self.home.x, self.home.y
             dist = math.hypot(dest_x - self.x, dest_y - self.y)
             eta = dist / max(self._effective_speed, 1)
             label = f"{int(eta//60)}m {int(eta%60)}s" if eta >= 60 else f"{eta:.0f}s"
