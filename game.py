@@ -6,7 +6,9 @@ from camera import Camera
 from space_map import SpaceMap
 from planet import generate_planets
 from ship import Ship
-from ui import PlanetUI, ShipUI, ColonyBar
+from ui_planet import PlanetUI
+from ui_ship import ShipUI
+from ui_map import ColonyBar
 from debris import Debris
 
 def _draw_dashed_line(surface, color, start, end, dash=8, gap=5, width=1):
