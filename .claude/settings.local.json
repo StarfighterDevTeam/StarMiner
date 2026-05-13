@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -c \"import ui, ship, game; print\\('OK'\\)\")",
+      "Bash(python -c \"import ui, ship; print\\('OK'\\)\")"
+    ]
+  }
+}

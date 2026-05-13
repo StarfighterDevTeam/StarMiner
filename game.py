@@ -38,6 +38,8 @@ class Game:
         self.ships = []
         self.highways = set()
         self.ui = PlanetUI()
+        self.ship_upgrades = {stype: 1 for stype in SHIP_DEFS}
+        self.ui.ship_upgrades = self.ship_upgrades
         self.ship_ui = ShipUI()
         self.colony_bar = ColonyBar()
         self._hovered_planet = None

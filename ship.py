@@ -80,6 +80,7 @@ class Ship:
         self._discover_duration = 10.0
         self._destroyed = False
         self.repeat = False
+        self._upgrade_level = 1
 
         # Transport mission fields
         self._transport_target   = None   # destination planet B
@@ -128,6 +129,24 @@ class Ship:
 
     def has_fuel_for(self, mtype, target):
         return self.home.resources.get(self.fuel_type, 0) >= self.fuel_cost(mtype, target)
+
+    def apply_upgrade(self, level):
+        """Recalculate combat/cargo stats from base SHIP_DEFS × upgrade multiplier (+15%/level)."""
+        self._upgrade_level = level
+        defn = SHIP_DEFS[self.type]
+        mult = 1.0 + (level - 1) * 0.15
+        if self.max_hp > 0:
+            ratio = self.hp / max(self.max_hp, 1)
+            self.max_hp = int(defn["hp"] * mult)
+            self.hp = max(1, int(self.max_hp * ratio))
+        if self.damage > 0:
+            self.damage = defn.get("damage", 0) * mult
+        if self.fire_range > 0:
+            self.fire_range = defn.get("fire_range", 0) * mult
+        if self.fuel_capacity is not None:
+            self.fuel_capacity = int(defn["fuel_capacity"] * mult)
+        if self.capacity > 0:
+            self.capacity = int(defn["capacity"] * mult)
 
     def fuel_cost_patrol(self, wx, wy):
         return math.hypot(self.x - wx, self.y - wy) * self.fuel_rate

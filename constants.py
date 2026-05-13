@@ -151,4 +151,4 @@ RELATIONSHIP_LABELS = {
 MISSION_ONE_WAY = frozenset({"explore", "colonize", "highway"})
 
 # Starting resources for player's first planet
-START_RESOURCES = {"iron": 5000, "gold": 1000, "silver": 800, "oil": 50, "deuterium": 30}
+START_RESOURCES = {"iron": 5000, "gold": 1000, "silver": 800, "oil": 500, "deuterium": 30}

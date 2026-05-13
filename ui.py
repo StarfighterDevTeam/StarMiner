@@ -12,6 +12,11 @@ def _fmt_time(secs):
     s = int(secs)
     return f"{s // 60}m{s % 60:02d}s" if s >= 60 else f"{s}s"
 
+def _ship_upgrade_cost(stype, current_level):
+    """Cost to upgrade stype from current_level to current_level+1 = level × base_ship_cost."""
+    base = SHIP_DEFS[stype]["cost"]
+    return {r: int(v * current_level) for r, v in base.items()}
+
 def _mission_eta(ship):
     """Returns (remaining_secs, total_secs) for the full mission, or None."""
     import math
@@ -120,6 +125,7 @@ class PlanetUI:
         self._sb_info: dict = {}      # scrollbar geometry per tab (set during draw)
         self._transport_cfg   = None  # {"ship": Ship, "outbound": set, "inbound": set, "repeat": bool}
         self._collect_request = None  # Ship requesting collect mode (promoted by game.py)
+        self.ship_upgrades: dict = {}  # stype → level 1-10, set by game.py
 
     def open(self, planet):
         self.planet = planet
@@ -300,6 +306,26 @@ class PlanetUI:
         elif tag == "cancel_ship_all":
             p.cancel_all_ships()
             self.show_message("Toutes les constructions annulées")
+
+        elif tag.startswith("ship_upgrade:"):
+            stype = tag[13:]
+            lvl = self.ship_upgrades.get(stype, 1)
+            if lvl >= 10:
+                self.show_message(f"{stype} est déjà au niveau maximum")
+                return
+            cost = _ship_upgrade_cost(stype, lvl)
+            for res, amt in cost.items():
+                if p.resources.get(res, 0) < amt:
+                    needed = "  ".join(f"{a}{r[:3]}" for r, a in cost.items())
+                    self.show_message(f"Ressources manquantes: {needed}")
+                    return
+            for res, amt in cost.items():
+                p.resources[res] -= amt
+            self.ship_upgrades[stype] = lvl + 1
+            for ship in all_ships:
+                if ship.type == stype and ship.faction == "player":
+                    ship.apply_upgrade(lvl + 1)
+            self.show_message(f"{stype} amélioré → Niv.{lvl + 1}/10")
 
         elif tag.startswith("upgrade:"):
             bname = tag[8:]
@@ -949,7 +975,7 @@ class PlanetUI:
         surface.blit(lt, (pr.x + 10, y + 2))
         y += 16  # scrollable area starts here
 
-        row_h = 52
+        row_h = 64
         SB_W = 7
         content_w = pr.w - 12 - SB_W - 2
         right = pr.x + 6 + content_w
@@ -963,6 +989,7 @@ class PlanetUI:
 
         ry = y + 2 - scroll_offset
         mouse_pos = pygame.mouse.get_pos()
+        _upg_tooltip = None  # (text, btn_rect) drawn after loop to stay on top
 
         for stype, defn in all_types:
             if ry + row_h < y or ry > y + visible_h:
@@ -971,6 +998,7 @@ class PlanetUI:
 
             req_lvl = defn.get("shipyard_level", 1)
             unlocked = sy_level >= req_lvl
+            lvl = self.ship_upgrades.get(stype, 1)
 
             bg_color = (20, 28, 42) if unlocked else (18, 18, 26)
             pygame.draw.rect(surface, bg_color,  (pr.x + 6, ry + 2, content_w, row_h - 4), border_radius=4)
@@ -980,28 +1008,46 @@ class PlanetUI:
             nt = f.render(stype, True, name_color)
             surface.blit(nt, (pr.x + 12, ry + 5))
 
-            req_t = sf.render(f"Niv.{req_lvl}", True, GOLD if unlocked else GRAY)
-            surface.blit(req_t, (pr.x + 12 + nt.get_width() + 6, ry + 7))
+            if unlocked:
+                upg_t = sf.render(f"Niv.{lvl}", True, GOLD)
+                surface.blit(upg_t, (pr.x + 12 + nt.get_width() + 8, ry + 7))
 
             cost_str = "  ".join(f"{amt}{r[:3]}" for r, amt in defn["cost"].items())
             actual_time = int(defn["time"] * factor)
             cap_str = f"  Cap:{defn['capacity']}" if defn['capacity'] > 0 else ""
             info = f"{cost_str}  |  Vit:{defn['speed']}{cap_str}"
             ct = sf.render(info, True, GRAY if unlocked else (40, 45, 55))
-            surface.blit(ct, (pr.x + 12, ry + 22))
-
             missions_str = " / ".join(defn["missions"])
             mt = sf.render(f"Missions: {missions_str}", True, UI_TEXT if unlocked else (40, 45, 55))
-            surface.blit(mt, (pr.x + 12, ry + 36))
+            _old_clip = surface.get_clip()
+            surface.set_clip(pygame.Rect(pr.x + 6, ry + 2, right - 82 - pr.x, row_h - 4))
+            surface.blit(ct, (pr.x + 12, ry + 22))
+            surface.blit(mt, (pr.x + 12, ry + 40))
+            surface.set_clip(_old_clip)
 
             if unlocked:
                 can, _ = p.can_build_ship(stype)
-                btn = Button((right - 76, ry + 15, 72, 22),
+                btn = Button((right - 76, ry + 8, 72, 22),
                              "Construire", enabled=can, tooltip=f"ship:{stype}")
                 btn.handle_mouse(mouse_pos); btn.draw(surface)
                 self._buttons.append(btn)
                 t = _font(9).render(_fmt_time(actual_time), True, (80, 100, 130))
-                surface.blit(t, (right - 76 + (72 - t.get_width()) // 2, ry + 39))
+                surface.blit(t, (right - 76 + (72 - t.get_width()) // 2, ry + 32))
+
+                at_max = lvl >= 10
+                upg_cost = _ship_upgrade_cost(stype, lvl)
+                can_upg = not at_max and all(
+                    p.resources.get(r, 0) >= v for r, v in upg_cost.items()
+                )
+                upg_label = "MAX" if at_max else f"↑ Niv.{lvl + 1}"
+                btn2 = Button((right - 76, ry + 42, 72, 14),
+                              upg_label, enabled=can_upg and not at_max,
+                              tooltip=f"ship_upgrade:{stype}")
+                btn2.handle_mouse(mouse_pos); btn2.draw(surface)
+                self._buttons.append(btn2)
+                if btn2._hovered and not at_max:
+                    cost_txt = "  ".join(f"{a} {r}" for r, a in upg_cost.items())
+                    _upg_tooltip = (f"Coût Niv.{lvl+1}: {cost_txt}", btn2.rect)
             else:
                 lock_t = sf.render(f"[Chantier Niv.{req_lvl}]", True, (55, 60, 75))
                 surface.blit(lock_t, (right - lock_t.get_width() - 4, ry + 20))
@@ -1011,6 +1057,17 @@ class PlanetUI:
         self._draw_scrollbar(surface, "ships", "_ship_scroll",
                              pr.x + pr.w - 6 - SB_W, y, visible_h,
                              total_h, visible_h, scroll_offset, max_scroll)
+
+        if _upg_tooltip:
+            txt, btn_rect = _upg_tooltip
+            tip_f = _font(10)
+            tip_s = tip_f.render(txt, True, WHITE)
+            tw, th = tip_s.get_width() + 10, 18
+            tx = max(pr.x + 4, min(btn_rect.x + btn_rect.w // 2 - tw // 2, pr.x + pr.w - tw - 4))
+            ty = btn_rect.y - th - 3
+            pygame.draw.rect(surface, (15, 20, 42), (tx, ty, tw, th), border_radius=3)
+            pygame.draw.rect(surface, GOLD, (tx, ty, tw, th), 1, border_radius=3)
+            surface.blit(tip_s, (tx + 5, ty + 2))
 
     def _fleet_row_h(self, ship):
         if (self._transport_cfg is not None
@@ -1057,6 +1114,8 @@ class PlanetUI:
             # Line 1 – name + dock badge
             nt = f.render(f"{ship.type} #{ship.id}", True, CYAN)
             surface.blit(nt, (pr.x + 12, ry + 6))
+            ulvl_t = sf.render(f"★Niv.{ship._upgrade_level}", True, GOLD)
+            surface.blit(ulvl_t, (pr.x + 12 + nt.get_width() + 6, ry + 8))
             if here:
                 badge = sf.render("ANCRÉ", True, (80, 220, 120))
                 surface.blit(badge, (right - badge.get_width() - 4, ry + 8))
@@ -1601,6 +1660,8 @@ class ShipUI:
         title_f = _font(15)
         title_t = title_f.render(f"{s.type}  #{s.id}", True, CYAN)
         surface.blit(title_t, (pr.x + 12, y))
+        ulvl_t = _font(11).render(f"Niv.{s._upgrade_level}", True, GOLD)
+        surface.blit(ulvl_t, (pr.x + 12 + title_t.get_width() + 8, y + 3))
         y += 20
 
         sub_f = _font(11)
