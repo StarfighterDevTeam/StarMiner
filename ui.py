@@ -542,6 +542,14 @@ class PlanetUI:
                 label = res[:RESOURCE_MAX_CHAR].upper()
                 t = res_font.render(label, True, color)
             surface.blit(t, (rx, ry))
+            if p.colonized:
+                bar_w = col_w - 8
+                ratio = max(0.0, min(1.0, val / max(cap, 1)))
+                bar_x, bar_y = rx, ry + 13
+                pygame.draw.rect(surface, (25, 30, 50), (bar_x, bar_y, bar_w, 2))
+                fw = int(bar_w * ratio)
+                if fw > 0:
+                    pygame.draw.rect(surface, RED if near_cap else color, (bar_x, bar_y, fw, 2))
         rows = (len(res_items) + 2) // 3
         y += max(rows * 16 + 4, 20)
 
