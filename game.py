@@ -567,7 +567,7 @@ class Game:
 
         if len(pts) < 3:
             return
-        color = (80, 160, 255) if ship.pnr_advisory else (200, 120, 20)
+        color = GOLD if ship.pnr_advisory else (200, 120, 20)
         pygame.draw.polygon(self.screen, color, pts, 2)
 
     def _draw_patrol_overlay(self):

@@ -1,3 +1,5 @@
 - minimap
 
 - quick access to fleet
+
+- clic-droit = action rapide

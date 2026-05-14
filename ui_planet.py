@@ -680,13 +680,26 @@ class PlanetUI:
         elif mtype == "transport" and planet is ship.home:
             error = ("Même planète", RED)
 
-        if mtype == "patrol":
+        fuel_ok_return = True  # default; overridden for dedicated-tank ships
+        if mtype in ("patrol", "navigate"):
             fuel = ship.fuel_cost_patrol(planet.x, planet.y)
             if ship.fuel_capacity is not None:
                 fuel_return = ship._fuel_to_nearest_colony(planet.x, planet.y, [])
-                fuel_ok = ship.fuel_remaining >= fuel + fuel_return
+                fuel_ok_leg = ship.fuel_remaining >= fuel
+                fuel_ok_return = ship.fuel_remaining >= fuel + fuel_return
+                if ship.pnr_advisory:
+                    fuel_ok = fuel_ok_leg
+                    if fuel_ok_return:
+                        line_color = GREEN
+                    elif fuel_ok_leg:
+                        line_color = GOLD
+                    else:
+                        line_color = RED
+                else:
+                    fuel_ok = fuel_ok_return
+                    line_color = GREEN if fuel_ok else RED
                 fuel_line = (f"Réservoir : {fuel:.0f} requis / {ship.fuel_remaining:.0f} {ship.fuel_type}",
-                             GREEN if fuel_ok else RED)
+                             line_color)
             else:
                 fuel_avail = ship.home.resources.get(ship.fuel_type, 0) + ship.fuel_remaining
                 fuel_ok = fuel_avail >= fuel
@@ -721,9 +734,14 @@ class PlanetUI:
                 lines.append((f"Extract.: {_fmt_time(mission_dur)}", ORANGE))
             elif mtype == "pump":
                 lines.append((f"Pompage : {_fmt_time(mission_dur)}", CYAN))
-            if not one_way:
+            _pnr_warn = (mtype == "navigate" and getattr(ship, "pnr_advisory", False)
+                         and not fuel_ok_return)
+            if not one_way and not _pnr_warn:
                 lines.append((f"Retour  : {_fmt_time(travel_back)}", UI_TEXT))
-            lines.append((f"Total   : {_fmt_time(total)}", CYAN))
+            if _pnr_warn:
+                lines.append(("Retour non assuré", GOLD))
+            else:
+                lines.append((f"Total   : {_fmt_time(total)}", CYAN))
             lines.append(fuel_line)
             if hab_hint:
                 lines.append(hab_hint)
@@ -756,21 +774,37 @@ class PlanetUI:
         if ship.fuel_capacity is not None:
             fuel_return = ship._fuel_to_nearest_colony(wx, wy, planets or [])
             fuel_needed = fuel_leg + fuel_return
-            fuel_ok = ship.fuel_remaining >= fuel_needed
-            fuel_label = (f"Réservoir : {fuel_needed:.0f} requis / "
-                          f"{ship.fuel_remaining:.0f} {ship.fuel_type}")
+            fuel_ok_leg = ship.fuel_remaining >= fuel_leg
+            fuel_ok_return = ship.fuel_remaining >= fuel_needed
+            if ship.pnr_advisory:
+                fuel_ok = fuel_ok_leg
+                if fuel_ok_return:
+                    fuel_color = GREEN
+                elif fuel_ok_leg:
+                    fuel_color = GOLD
+                else:
+                    fuel_color = RED
+            else:
+                fuel_ok = fuel_ok_return
+                fuel_color = GREEN if fuel_ok else RED
+            fuel_label = (f"Réservoir : {fuel_leg:.0f} aller / "
+                          f"{ship.fuel_remaining:.0f} dispo {ship.fuel_type}")
         else:
             fuel_avail = ship.home.resources.get(ship.fuel_type, 0) + ship.fuel_remaining
             fuel_ok = fuel_avail >= fuel_leg
+            fuel_color = GREEN if fuel_ok else RED
             fuel_label = f"Carburant : {fuel_leg:.0f} {ship.fuel_type}"
 
         lines = []
         if not fuel_ok:
             lines.append((f"{ship.fuel_type.capitalize()} insuffisant", RED))
+        elif ship.pnr_advisory and not fuel_ok_return:
+            lines.append((f"Aller   : {_fmt_time(travel_to)}", UI_TEXT))
+            lines.append(("Retour non assuré", GOLD))
         else:
             lines.append((f"Aller   : {_fmt_time(travel_to)}", UI_TEXT))
             lines.append((f"Total   : {_fmt_time(travel_to)}", CYAN))
-        lines.append((fuel_label, GREEN if fuel_ok else RED))
+        lines.append((fuel_label, fuel_color))
 
         f = _font(11)
         line_h = 15
