@@ -45,10 +45,10 @@ def test_non_home_planet_not_discovered_at_creation():
     assert p.explored is False
 
 def test_colonize_sets_discovered():
-    p = FakePlanet(is_home=False)
-    p.discovered = True   # précondition : doit être discovered pour être colonisée
-    p.colonized = True
-    p.explored = True
-    p.discovered = True
+    from planet import Planet
+    p = Planet(0.0, 0.0, "rocky", "TestPlanet", is_home=False)
+    assert p.discovered is False
+    p.colonize()
     assert p.discovered is True
     assert p.explored is True
+    assert p.colonized is True
