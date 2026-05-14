@@ -1098,7 +1098,7 @@ class PlanetUI:
                 bx = right - n * 76 - (n - 1) * 6 - 4
                 for mi, mtype in enumerate(missions):
                     is_active = (patrol_mode_ship is ship) if mtype in ("patrol", "navigate") else (self._mission_mode == (mtype, ship))
-                    enabled = not (mtype == "patrol"
+                    enabled = not (mtype in ("patrol", "navigate")
                                    and ship.fuel_capacity is not None
                                    and ship.fuel_remaining < 1.0)
                     btn = Button((bx + mi * 82, ry + 10, 76, 20),

@@ -120,6 +120,7 @@ class Ship:
         self.fuel_rate      = defn.get("fuel_rate", 0.005)
         self.fuel_capacity  = defn.get("fuel_capacity", None)  # None = no dedicated tank
         self.fuel_remaining = 0.0
+        self.pnr_advisory   = defn.get("pnr_advisory", False)  # PNR shown but not enforced
 
         # Animation
         self._anim_timer = 0.0
@@ -193,8 +194,12 @@ class Ship:
     def send_explore(self, target):
         if self.state != MISSION_IDLE: return False
         fuel = self.fuel_cost("explore", target)
-        if self.home.resources.get(self.fuel_type, 0) < fuel: return False
-        self._load_fuel(fuel)
+        if self.fuel_capacity is not None:
+            # Dedicated tank: drain from tank, no borrowing from home
+            if self.fuel_remaining < fuel: return False
+        else:
+            if self.home.resources.get(self.fuel_type, 0) < fuel: return False
+            self._load_fuel(fuel)
         self.target_planet = target
         self.state = MISSION_TRAVEL
         self._mission_type = "explore"
@@ -289,10 +294,11 @@ class Ship:
         if self.state not in (MISSION_IDLE, MISSION_PATROL, MISSION_COMBAT): return False
         fuel_leg = self.fuel_cost_patrol(wx, wy)
         if self.fuel_capacity is not None:
-            # Combat ship: validate leg + return-to-nearest-colony budget from tank
-            fuel_return = self._fuel_to_nearest_colony(wx, wy, planets) if planets else 0.0
-            if self.fuel_remaining < fuel_leg + fuel_return:
-                return False
+            if not self.pnr_advisory:
+                # Combat ship: validate leg + return-to-nearest-colony budget from tank
+                fuel_return = self._fuel_to_nearest_colony(wx, wy, planets) if planets else 0.0
+                if self.fuel_remaining < fuel_leg + fuel_return:
+                    return False
             # No pre-deduction — _move_toward drains the tank continuously during travel
         else:
             # Non-combat / enemy: borrow from home planet as before
@@ -529,6 +535,8 @@ class Ship:
         return self._effective_speed
 
     def _move_toward(self, tx, ty, dt, speed=None):
+        if self.fuel_capacity is not None and self.fuel_remaining <= 0.0:
+            return  # Stranded: dedicated tank empty, cannot move
         dx = tx - self.x
         dy = ty - self.y
         dist = math.hypot(dx, dy)

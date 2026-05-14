@@ -5,8 +5,8 @@ WORLD_W = 24000
 WORLD_H = 24000
 SECTOR_SIZE = 800          # pixels per sector cell
 DETECTION_RANGE = 400      # fog-of-war visibility radius around player assets (world px)
-PLANET_MIN_DIST = 1000     # min distance between planets
-PLANET_MAX_DIST = 2000     # max distance between planets
+PLANET_MIN_DIST = 1500     # min distance between planets
+PLANET_MAX_DIST = 3000     # max distance between planets
 NUM_PLANETS = 30
 HABITABLE_RATIO = 0.25     # fraction of non-home planets that can be colonized
 
@@ -111,7 +111,7 @@ BUILDING_PLANET_TYPES = {
 # Ships — shipyard_level = niveau minimal du chantier naval requis
 # fuel_type: ressource consommée en vol  |  fuel_rate: unités/px parcouru
 SHIP_DEFS = {
-    "Probe":      {"cost": {"iron": 50,  "gold": 10},                        "time": 15, "speed": 100, "capacity": 0,    "missions": ["explore", "navigate"],   "shipyard_level": 1, "fuel_type": "oil",       "fuel_rate": 0.003, "detection_range": 800},
+    "Probe":      {"cost": {"iron": 50,  "gold": 10},                        "time": 15, "speed": 150, "capacity": 0,    "missions": ["explore", "navigate"],   "shipyard_level": 1, "fuel_type": "oil",       "fuel_rate": 0.003, "fuel_capacity": 50, "detection_range": 800, "pnr_advisory": True},
     "Miner":      {"cost": {"iron": 120, "gold": 20,  "oil": 10},            "time": 30, "speed": 100, "capacity": 200,  "missions": ["mine"],      "shipyard_level": 1, "fuel_type": "oil",       "fuel_rate": 0.005},
     "Colonizer":  {"cost": {"iron": 300, "gold": 80,  "silver": 50},         "time": 60, "speed": 80,  "capacity": 0,    "missions": ["colonize"],  "shipyard_level": 1, "fuel_type": "oil",       "fuel_rate": 0.006},
     "Scout":      {"cost": {"iron": 80,  "gold": 40},                        "time": 20, "speed": 300, "capacity": 0,    "missions": ["explore"],   "shipyard_level": 3, "fuel_type": "deuterium", "fuel_rate": 0.002},
