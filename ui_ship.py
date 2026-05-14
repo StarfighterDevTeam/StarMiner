@@ -32,8 +32,9 @@ class ShipUI:
         if s.state == MISSION_MINE:
             h += 15       # mine timer
         h += 26  # cancel/repeat row (always reserved)
-        if s.fire_range > 0:
-            h += 26  # patrol row (always reserved for combat ships)
+        _can_navigate = s.fire_range > 0 or "navigate" in SHIP_DEFS.get(s.type, {}).get("missions", [])
+        if _can_navigate:
+            h += 26  # navigate row
 
         if s.capacity > 0:
             h += 8   # separator before cargo
@@ -123,7 +124,7 @@ class ShipUI:
             MISSION_DISCOVER: "En découverte",
             MISSION_MINE:     "En extraction",
             MISSION_RETURN:   "Retour",
-            MISSION_PATROL:   "En patrouille",
+            MISSION_PATROL:   "En navigation",
             MISSION_COMBAT:   "Au combat",
         }
         STATE_COLORS = {
@@ -267,18 +268,19 @@ class ShipUI:
             self._buttons.append(repeat_btn)
         y += 26  # always advance
 
-        # Patrol row for combat ships (space always reserved)
-        if s.fire_range > 0:
-            has_patrol_cancel = s.state in (MISSION_PATROL, MISSION_COMBAT)
+        # Navigate row for combat ships and ships with "navigate" mission
+        _can_navigate = s.fire_range > 0 or "navigate" in SHIP_DEFS.get(s.type, {}).get("missions", [])
+        if _can_navigate:
+            has_nav_cancel = s.state in (MISSION_PATROL, MISSION_COMBAT)
             bx = pr.x + 10
             bw = 140
-            patrol_btn = Button((bx, y + 2, bw, 20), "Patrouille", tooltip="patrol_request")
-            patrol_btn.handle_mouse(pygame.mouse.get_pos())
-            patrol_btn.draw(surface)
-            self._buttons.append(patrol_btn)
-            if has_patrol_cancel:
+            nav_btn = Button((bx, y + 2, bw, 20), "Naviguer", tooltip="patrol_request")
+            nav_btn.handle_mouse(pygame.mouse.get_pos())
+            nav_btn.draw(surface)
+            self._buttons.append(nav_btn)
+            if has_nav_cancel:
                 cancel_btn = Button((pr.x + pr.w - 150, y + 2, 140, 20),
-                                    "Annuler patrouille", tooltip="cancel_mission")
+                                    "Annuler navigation", tooltip="cancel_mission")
                 cancel_btn.handle_mouse(pygame.mouse.get_pos())
                 cancel_btn.draw(surface)
                 self._buttons.append(cancel_btn)

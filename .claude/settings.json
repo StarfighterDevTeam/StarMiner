@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(pytest tests/test_planet_discovery.py -v)",
+      "Bash(python -m pytest tests/test_ship_detection_range.py -v)",
+      "Bash(python -m pytest tests/ -v)",
+      "Bash(python -m pytest tests/ -v --tb=short)",
+      "Bash(tee test_output.log)",
+      "Bash(pytest tests/ -v)",
+      "Bash(timeout 8 python main.py)",
+      "Bash(echo \"Exit code: $?\")",
+      "Bash(python -c \"from constants import *; print\\('Probe detection_range:', SHIP_DEFS.get\\('Probe', {}\\).get\\('detection_range', 'N/A'\\)\\); print\\('DETECTION_RANGE:', DETECTION_RANGE\\); print\\('NUM_PLANETS:', NUM_PLANETS\\)\")",
+      "Bash(timeout 5 python main.py)",
+      "Bash(python main.py)"
+    ]
+  }
+}

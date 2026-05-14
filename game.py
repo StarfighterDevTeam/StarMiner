@@ -154,10 +154,35 @@ class Game:
             if d in visible:
                 continue
             for ps in self.ships:
-                if (d.x - ps.x) ** 2 + (d.y - ps.y) ** 2 <= r2:
+                dr2 = ps.detection_range * ps.detection_range
+                if (d.x - ps.x) ** 2 + (d.y - ps.y) ** 2 <= dr2:
                     visible.add(d)
                     break
         return visible
+
+    def _update_discovered_planets(self):
+        r2_colony = DETECTION_RANGE * DETECTION_RANGE
+        for planet in self.planets:
+            if planet.discovered:
+                continue
+            for asset_p in self.planets:
+                if asset_p.colonized:
+                    dx = planet.x - asset_p.x
+                    dy = planet.y - asset_p.y
+                    if dx * dx + dy * dy <= r2_colony:
+                        planet.discovered = True
+                        break
+            if planet.discovered:
+                continue
+            for ship in self.ships:
+                if ship.is_docked:
+                    continue
+                dr2 = ship.detection_range * ship.detection_range
+                dx = planet.x - ship.x
+                dy = planet.y - ship.y
+                if dx * dx + dy * dy <= dr2:
+                    planet.discovered = True
+                    break
 
     def _update_enemies(self, dt, all_ships):
         for s in self.enemy_ships:
@@ -316,7 +341,7 @@ class Game:
             if self.ui._mission_mode:
                 if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                     for p in self.planets:
-                        if p.is_clicked(mx, my, self.camera) and p is not self.ui.planet:
+                        if p.discovered and p.is_clicked(mx, my, self.camera) and p is not self.ui.planet:
                             self.ui.dispatch_mission(p, self.highways)
                             break
                 else:
@@ -340,7 +365,7 @@ class Game:
                     continue
 
                 clicked_planet = next(
-                    (p for p in self.planets if p.is_clicked(mx, my, self.camera)), None)
+                    (p for p in self.planets if p.discovered and p.is_clicked(mx, my, self.camera)), None)
                 if clicked_planet:
                     if self.ui.visible and self.ui.planet is clicked_planet:
                         self.ui.close()
@@ -365,7 +390,8 @@ class Game:
             if s in visible:
                 continue
             for ps in self.ships:
-                if (s.x - ps.x) ** 2 + (s.y - ps.y) ** 2 <= r2:
+                dr2 = ps.detection_range * ps.detection_range
+                if (s.x - ps.x) ** 2 + (s.y - ps.y) ** 2 <= dr2:
                     visible.add(s)
                     break
         return visible
@@ -383,6 +409,7 @@ class Game:
         for s in self.ships:
             s.update(dt, self.planets, self.highways, all_ships)
         self._update_enemies(dt, all_ships)
+        self._update_discovered_planets()
         for s in self.ships:
             if s._destroyed:
                 self._spawn_debris_from_ship(s)
@@ -408,7 +435,7 @@ class Game:
         self._hovered_planet = None
         if not self._hovered_ship and not in_planet_panel and not in_ship_panel and not in_colony_bar:
             self._hovered_planet = next(
-                (p for p in self.planets if p.is_clicked(mx, my, self.camera)), None)
+                (p for p in self.planets if p.discovered and p.is_clicked(mx, my, self.camera)), None)
 
         self._hovered_debris = None
         if (not self._hovered_ship and not self._hovered_planet
@@ -585,9 +612,12 @@ class Game:
                 pygame.draw.circle(surf, (140, 140, 140, 55), (sx, sy), r_px, 1)
         for s in self.ships:
             if not s.is_docked:
+                s_r_px = int(s.detection_range * self.camera.zoom)
+                if s_r_px < 2:
+                    continue
                 sx, sy = self.camera.world_to_screen(s.x, s.y)
-                pygame.draw.circle(surf, (110, 110, 110, 18), (sx, sy), r_px)
-                pygame.draw.circle(surf, (140, 140, 140, 55), (sx, sy), r_px, 1)
+                pygame.draw.circle(surf, (110, 110, 110, 18), (sx, sy), s_r_px)
+                pygame.draw.circle(surf, (140, 140, 140, 55), (sx, sy), s_r_px, 1)
         self.screen.blit(surf, (0, 0))
 
     def _draw_highways(self):

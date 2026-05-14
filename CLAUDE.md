@@ -156,3 +156,7 @@ Spawné dans `game.debris_list` :
 - `surface.set_clip(rect)` — utilisé dans ui_planet pour éviter que le texte déborde sur les boutons.
 - `_upg_tooltip` — pattern : collecter les données tooltip pendant le draw loop, rendre après la boucle pour apparaître au-dessus.
 - Toutes les constantes de couleur (`CYAN`, `GOLD`, `RED`, etc.) et `SHIP_DEFS`, `BUILDING_DEFS` sont importées via `from constants import *`.
+
+## Règles commit
+
+- Ne jamais faire de commit git à la place de l'utilisateur.

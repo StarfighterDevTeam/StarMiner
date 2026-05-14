@@ -112,6 +112,9 @@ class Ship:
         self._dock_planet = None      # colonized planet to dock at on arrival
         self._pre_combat_dest = None  # patrol dest saved before entering combat
 
+        # Perception attributes
+        self.detection_range = defn.get("detection_range", DETECTION_RANGE)
+
         # Fuel attributes
         self.fuel_type      = defn.get("fuel_type", "oil")
         self.fuel_rate      = defn.get("fuel_rate", 0.005)

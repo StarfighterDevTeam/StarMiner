@@ -47,7 +47,7 @@ class Planet:
         self.size = PLANET_SIZES[planet_type]
         self.colonized = is_home
         self.explored = is_home
-        self.discovered = is_home   # ← ajouter cette ligne
+        self.discovered = is_home
         self.is_home = is_home
         self.habitable = is_home or habitable
 

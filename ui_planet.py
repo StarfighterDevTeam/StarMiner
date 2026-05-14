@@ -299,8 +299,8 @@ class PlanetUI:
                 ship.repeat = not ship.repeat
                 self.show_message(f"Repeat {'activé' if ship.repeat else 'désactivé'}")
 
-        elif tag.startswith("patrol:"):
-            sid = int(tag[7:])
+        elif tag.startswith("patrol:") or tag.startswith("navigate:"):
+            sid = int(tag.split(":")[1])
             ship = next((s for s in p.ships if s.id == sid), None)
             if ship:
                 self._patrol_request = ship
@@ -1033,7 +1033,7 @@ class PlanetUI:
         ry                = y - scroll_offset + 4
 
         _MISSION_LABELS = {"explore": "Explorer", "mine": "Extraire", "pump": "Pomper",
-                           "colonize": "Coloniser", "patrol": "Patrouille",
+                           "colonize": "Coloniser", "patrol": "Naviguer",
                            "highway": "Route"}
         mouse_pos = pygame.mouse.get_pos()
 
@@ -1067,7 +1067,7 @@ class PlanetUI:
                 st_col = ORANGE
             elif ship.state == "patrol":
                 dp = getattr(ship, "_dock_planet", None)
-                st_txt = f"Patrouille → {dp.name}" if dp and dp is not p else "Patrouille"
+                st_txt = f"Navigation → {dp.name}" if dp and dp is not p else "Naviguer"
                 st_col = ORANGE
             elif ship.state == "combat":
                 st_txt = "Combat"
@@ -1097,7 +1097,7 @@ class PlanetUI:
                 n = len(missions)
                 bx = right - n * 76 - (n - 1) * 6 - 4
                 for mi, mtype in enumerate(missions):
-                    is_active = (patrol_mode_ship is ship) if mtype == "patrol" else (self._mission_mode == (mtype, ship))
+                    is_active = (patrol_mode_ship is ship) if mtype in ("patrol", "navigate") else (self._mission_mode == (mtype, ship))
                     enabled = not (mtype == "patrol"
                                    and ship.fuel_capacity is not None
                                    and ship.fuel_remaining < 1.0)
@@ -1121,7 +1121,7 @@ class PlanetUI:
                     self._buttons.append(tbtn)
             elif ship.state in ("patrol", "combat"):
                 patrol_btn = Button((right - 164, ry + 10, 76, 20),
-                                    "Patrouille", tooltip=f"patrol:{ship.id}",
+                                    "Naviguer", tooltip=f"patrol:{ship.id}",
                                     active=patrol_mode_ship is ship)
                 patrol_btn.handle_mouse(mouse_pos); patrol_btn.draw(surface)
                 self._buttons.append(patrol_btn)
