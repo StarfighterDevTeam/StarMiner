@@ -47,6 +47,7 @@ class Planet:
         self.size = PLANET_SIZES[planet_type]
         self.colonized = is_home
         self.explored = is_home
+        self.discovered = is_home   # ← ajouter cette ligne
         self.is_home = is_home
         self.habitable = is_home or habitable
 
@@ -252,6 +253,7 @@ class Planet:
 
     def colonize(self):
         self.colonized = True
+        self.discovered = True
         self.explored = True
         for res, amt in START_RESOURCES.items():
             self.resources[res] = self.resources.get(res, 0) + amt
@@ -271,6 +273,8 @@ class Planet:
 
     # ── draw ─────────────────────────────────────────────────────
     def draw(self, surface, camera):
+        if not self.discovered:
+            return
         sx, sy = camera.world_to_screen(self.x, self.y)
         draw_size = max(10, int(self.size * camera.zoom))
         half = draw_size // 2
