@@ -9,6 +9,7 @@ from ship import Ship
 from ui_planet import PlanetUI
 from ui_ship import ShipUI
 from ui_map import ColonyBar
+from ui_minimap import MiniMap
 from debris import Debris
 
 def _draw_dashed_line(surface, color, start, end, dash=8, gap=5, width=1):
@@ -44,6 +45,7 @@ class Game:
         self.ui.ship_upgrades = self.ship_upgrades
         self.ship_ui = ShipUI()
         self.colony_bar = ColonyBar()
+        self.minimap = MiniMap()
         self._hovered_planet = None
         self._hovered_ship = None
         self._time_scale = 1.0
@@ -259,6 +261,10 @@ class Game:
                     if cb_action == 'center':
                         self.camera.x = cb_planet.x - SCREEN_W / (2 * self.camera.zoom)
                         self.camera.y = cb_planet.y - SCREEN_H / (2 * self.camera.zoom)
+                continue
+
+            # Minimap: intercept mouse events before patrol/mission modes
+            if self.minimap.handle_event(event, self.camera):
                 continue
 
             # Patrol mode: click map to send combat ship to a destination
@@ -491,6 +497,7 @@ class Game:
         self._draw_patrol_overlay()
         self._draw_collect_overlay()
         self._draw_hud()
+        self.minimap.draw(self.screen, self.planets, self.camera)
         pygame.display.flip()
 
     def _draw_mission_dash(self):
@@ -665,7 +672,7 @@ class Game:
 
         hint = "WASD/Arrows:scroll  |  Scroll:zoom  |  RMB drag:pan  |  Click:select  |  ESC:fermer"
         ht = font.render(hint, True, GRAY)
-        self.screen.blit(ht, (8, SCREEN_H - 40))
+        # self.screen.blit(ht, (8, SCREEN_H - 40))
 
         if self._hud_msg_timer > 0 and self._hud_msg:
             try:
