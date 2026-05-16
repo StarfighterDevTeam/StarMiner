@@ -245,7 +245,8 @@ class ShipUI:
         has_repeat = s.type in ("Miner", "Tanker")
         if has_cancel:
             _one_way = getattr(s, "_mission_type", None) in MISSION_ONE_WAY
-            if _one_way:
+            _free_nav = "navigate" in SHIP_DEFS.get(s.type, {}).get("missions", [])
+            if _one_way and not _free_nav:
                 if s.state == MISSION_TRAVEL and s.target_planet:
                     _d_home   = math.hypot(s.x - s.home.x, s.y - s.home.y)
                     _d_target = math.hypot(s.x - s.target_planet.x, s.y - s.target_planet.y)

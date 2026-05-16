@@ -750,11 +750,28 @@ class PlanetUI:
             if hab_hint:
                 lines.append(hab_hint)
 
+        _MTYPE_TITLES = {
+            "explore":  "Explorer",
+            "mine":     "Extraire",
+            "pump":     "Pomper",
+            "colonize": "Coloniser",
+            "highway":  "Autoroute",
+            "patrol":   "Naviguer",
+            "navigate": "Naviguer",
+            "transport":"Transport",
+        }
+        title_txt = _MTYPE_TITLES.get(mtype, mtype.capitalize())
+
+        f_title = _font(12)
         f = _font(11)
         line_h = 15
+        title_h = 18
         pad = 8
-        w = max(f.size(txt)[0] for txt, _ in lines) + pad * 2
-        h = len(lines) * line_h + pad
+        w = max(
+            f_title.size(title_txt)[0],
+            max((f.size(txt)[0] for txt, _ in lines), default=0)
+        ) + pad * 2
+        h = title_h + len(lines) * line_h + pad
 
         sx, sy = camera.world_to_screen(planet.x, planet.y)
         tx = int(sx) + 18
@@ -767,8 +784,12 @@ class PlanetUI:
         panel.fill((8, 12, 28, 210))
         pygame.draw.rect(panel, ORANGE, (0, 0, w, h), 1, border_radius=4)
         surface.blit(panel, (tx, ty))
+        surface.blit(f_title.render(title_txt, True, ORANGE), (tx + pad, ty + pad // 2))
+        pygame.draw.line(surface, (60, 80, 110),
+                         (tx + pad, ty + title_h), (tx + w - pad, ty + title_h))
         for i, (txt, color) in enumerate(lines):
-            surface.blit(f.render(txt, True, color), (tx + pad, ty + pad // 2 + i * line_h))
+            surface.blit(f.render(txt, True, color),
+                         (tx + pad, ty + title_h + 2 + i * line_h))
 
     def draw_patrol_hover(self, surface, wx, wy, camera, ship, planets=None):
         dist = math.hypot(ship.x - wx, ship.y - wy)
@@ -839,28 +860,36 @@ class PlanetUI:
         fuel_avail = ship.home.resources.get(ship.fuel_type, 0) + ship.fuel_remaining
         fuel_ok = fuel_avail >= fuel
         cargo_total = sum(debris.resources.values())
-        cap_left = ship.capacity - sum(ship.cargo.values())
+        cap_left = max(0, ship.capacity - sum(ship.cargo.values()))
+        cargo_ok = ship.capacity > 0 and cap_left >= cargo_total
 
         lines = []
         if not fuel_ok:
             lines.append((f"{ship.fuel_type.capitalize()} insuffisant", RED))
         else:
-            lines.append(("→ Collecter les débris", GOLD))
             lines.append((f"Aller   : {_fmt_time(travel_to)}", UI_TEXT))
             lines.append((f"Retour  : {_fmt_time(travel_back)}", UI_TEXT))
             lines.append((f"Total   : {_fmt_time(travel_to + travel_back)}", CYAN))
             if debris.resources:
-                res_parts = [f"{res[:3].upper()}:{int(v)}"
-                             for res, v in debris.resources.items() if v > 0]
-                lines.append((f"Contenu : {', '.join(res_parts)}", ORANGE))
-            lines.append((f"Cargo   : {int(cargo_total)} / {int(cap_left)} dispo", ORANGE if cargo_total > cap_left else UI_TEXT))
+                for res, v in debris.resources.items():
+                    if v > 0:
+                        color = RESOURCE_COLORS.get(res, ORANGE)
+                        lines.append((f"  {res[:3].upper()}: {int(v)}", color))
+            lines.append((f"Cargo   : {int(cargo_total)} requis / {int(cap_left)} dispo",
+                          UI_TEXT if cargo_ok else ORANGE))
         lines.append((f"Carburant : {fuel:.0f} {ship.fuel_type}", GREEN if fuel_ok else RED))
 
+        title_txt = "Collecter" if cargo_ok else "Cargo insuffisant"
+        f_title = _font(12)
         f = _font(11)
         line_h = 15
+        title_h = 18
         pad = 8
-        w = max(f.size(txt)[0] for txt, _ in lines) + pad * 2
-        h = len(lines) * line_h + pad
+        w = max(
+            f_title.size(title_txt)[0],
+            max((f.size(txt)[0] for txt, _ in lines), default=0)
+        ) + pad * 2
+        h = title_h + len(lines) * line_h + pad
         sx, sy = camera.world_to_screen(debris.x, debris.y)
         tx = int(sx) + 18
         ty = int(sy) - h // 2
@@ -871,8 +900,13 @@ class PlanetUI:
         panel.fill((8, 12, 28, 210))
         pygame.draw.rect(panel, GOLD, (0, 0, w, h), 1, border_radius=4)
         surface.blit(panel, (tx, ty))
+        title_color = GOLD if cargo_ok else RED
+        surface.blit(f_title.render(title_txt, True, title_color), (tx + pad, ty + pad // 2))
+        pygame.draw.line(surface, (60, 80, 110),
+                         (tx + pad, ty + title_h), (tx + w - pad, ty + title_h))
         for i, (txt, color) in enumerate(lines):
-            surface.blit(f.render(txt, True, color), (tx + pad, ty + pad // 2 + i * line_h))
+            surface.blit(f.render(txt, True, color),
+                         (tx + pad, ty + title_h + 2 + i * line_h))
 
     def _draw_buildings(self, surface, pr, y, p):
         f = _font(12)

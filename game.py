@@ -432,6 +432,8 @@ class Game:
         for s in self.ships:
             if s._destroyed:
                 self._spawn_debris_from_ship(s)
+        if self.ship_ui.visible and self.ship_ui.ship and self.ship_ui.ship._destroyed:
+            self.ship_ui.close()
         self.ships = [s for s in self.ships if not s._destroyed]
 
         self._visible_enemies = self._compute_visible_enemies()
@@ -484,6 +486,8 @@ class Game:
             s.draw(self.screen, self.camera)
         for d in self._visible_debris:
             d.draw(self.screen, self.camera, hovered=(d is self._hovered_debris))
+        if self.ship_ui.visible and self.ship_ui.ship:
+            self.ship_ui.ship.draw_selected(self.screen, self.camera)
         if self._hovered_ship:
             self._hovered_ship.draw_hover(self.screen, self.camera)
         # Range circle for combat ships (patrol mode or selected in ShipUI)
@@ -495,11 +499,20 @@ class Game:
         self.ui.draw(self.screen, self.planets, self.highways,
                      patrol_mode_ship=self._patrol_mode_ship)
         if self._hovered_planet:
+            _hint_ship = self._patrol_mode_ship
+            if not _hint_ship and self.ship_ui.visible and self.ship_ui.ship:
+                _s = self.ship_ui.ship
+                _ms = SHIP_DEFS.get(_s.type, {}).get("missions", [])
+                if "navigate" in _ms or "patrol" in _ms:
+                    _hint_ship = _s
             self.ui.draw_mission_hover(self.screen, self._hovered_planet, self.camera, self.highways,
-                                       patrol_ship=self._patrol_mode_ship)
-        elif self._patrol_mode_ship and self._hovered_debris and self._patrol_mode_ship.capacity > 0:
-            self.ui.draw_debris_hover(self.screen, self._hovered_debris, self.camera,
-                                      self._patrol_mode_ship)
+                                       patrol_ship=_hint_ship)
+        elif self._hovered_debris and not self._hovered_planet:
+            _debris_ship = (self._patrol_mode_ship
+                            or (self.ship_ui.ship if self.ship_ui.visible else None))
+            if _debris_ship:
+                self.ui.draw_debris_hover(self.screen, self._hovered_debris, self.camera,
+                                          _debris_ship)
         elif self._patrol_mode_ship:
             mx, my = pygame.mouse.get_pos()
             wx, wy = self.camera.screen_to_world(mx, my)

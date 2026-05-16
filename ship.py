@@ -560,6 +560,11 @@ class Ship:
         r = max(8, int(SHIP_DRAW_SIZE * camera.zoom)) // 2 + 8
         return (mx - sx) ** 2 + (my - sy) ** 2 <= r ** 2
 
+    def draw_selected(self, surface, camera):
+        sx, sy = camera.world_to_screen(self.x, self.y)
+        r = max(8, int(SHIP_DRAW_SIZE * camera.zoom)) // 2 + 8
+        pygame.draw.circle(surface, GREEN, (sx, sy), r, 2)
+
     def draw_hover(self, surface, camera):
         sx, sy = camera.world_to_screen(self.x, self.y)
         r = max(8, int(SHIP_DRAW_SIZE * camera.zoom)) // 2 + 10
