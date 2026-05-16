@@ -1,7 +1,9 @@
-- minimap
-
 - quick access to fleet
 
 - clic-droit = action rapide
 
 - probe : explorer ne peut être annulé c'est pas logique
+
+- recycleur; recylage flotte défenseuse
+
+- défenses planétaires
