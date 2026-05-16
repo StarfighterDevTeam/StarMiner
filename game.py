@@ -123,7 +123,7 @@ class Game:
         rng  = random.Random(99)
         home = self.planets[0]
         for _ in range(10):
-            for _attempt in range(20):
+            for _ in range(20):
                 x = rng.randint(800, WORLD_W - 800)
                 y = rng.randint(800, WORLD_H - 800)
                 if math.hypot(x - home.x, y - home.y) > 2000:
@@ -149,16 +149,21 @@ class Game:
         r2      = DETECTION_RANGE * DETECTION_RANGE
         visible = set()
         for d in self.debris_list:
+            if d.revealed:
+                visible.add(d)
+                continue
             for pl in self.planets:
                 if pl.colonized and (d.x - pl.x) ** 2 + (d.y - pl.y) ** 2 <= r2:
                     visible.add(d)
                     break
             if d in visible:
+                d.revealed = True
                 continue
             for ps in self.ships:
                 dr2 = ps.detection_range * ps.detection_range
                 if (d.x - ps.x) ** 2 + (d.y - ps.y) ** 2 <= dr2:
                     visible.add(d)
+                    d.revealed = True
                     break
         return visible
 
@@ -276,17 +281,25 @@ class Game:
                              self.colony_bar.contains_point((mx, my), self.planets))
                     if not on_ui:
                         wx, wy = self.camera.screen_to_world(mx, my)
-                        dock_planet = next(
-                            (p for p in self.planets
-                             if p.colonized
-                             and (wx - p.x) ** 2 + (wy - p.y) ** 2 < (p.size + 10) ** 2),
-                            None)
-                        if dock_planet:
-                            wx, wy = dock_planet.x, dock_planet.y
                         ship = self._patrol_mode_ship
                         self._patrol_mode_ship = None
-                        ok = ship.send_patrol(wx, wy, dock_planet=dock_planet,
-                                              planets=self.planets)
+                        # Auto-dispatch: explore if hovering unexplored planet
+                        if (self._hovered_planet and not self._hovered_planet.explored
+                                and "explore" in SHIP_DEFS.get(ship.type, {}).get("missions", [])):
+                            ok = ship.send_explore(self._hovered_planet)
+                        # Auto-dispatch: collect if hovering debris with cargo capacity
+                        elif self._hovered_debris and ship.capacity > 0:
+                            ok = ship.send_collect(self._hovered_debris)
+                        else:
+                            dock_planet = next(
+                                (p for p in self.planets
+                                 if p.colonized
+                                 and (wx - p.x) ** 2 + (wy - p.y) ** 2 < (p.size + 10) ** 2),
+                                None)
+                            if dock_planet:
+                                wx, wy = dock_planet.x, dock_planet.y
+                            ok = ship.send_patrol(wx, wy, dock_planet=dock_planet,
+                                                  planets=self.planets)
                         if not ok:
                             self._patrol_mode_ship = ship
                             self._hud_msg = f"Carburant insuffisant ({ship.fuel_type})"
@@ -484,6 +497,9 @@ class Game:
         if self._hovered_planet:
             self.ui.draw_mission_hover(self.screen, self._hovered_planet, self.camera, self.highways,
                                        patrol_ship=self._patrol_mode_ship)
+        elif self._patrol_mode_ship and self._hovered_debris and self._patrol_mode_ship.capacity > 0:
+            self.ui.draw_debris_hover(self.screen, self._hovered_debris, self.camera,
+                                      self._patrol_mode_ship)
         elif self._patrol_mode_ship:
             mx, my = pygame.mouse.get_pos()
             wx, wy = self.camera.screen_to_world(mx, my)
@@ -658,21 +674,6 @@ class Game:
             spd_txt = font.render(f"[DEBUG] x{int(self._time_scale)}", True, ORANGE)
             self.screen.blit(spd_txt, (8, 36))
 
-        home = self.planets[0]
-        cap = home.storage_cap
-        x = 8
-        y = SCREEN_H - 40
-        for res in RESOURCE_NAMES:
-            val = home.resources.get(res, 0)
-            color = RESOURCE_COLORS.get(res, WHITE)
-            near_cap = val >= cap * 0.95
-            t = font.render(f"{res[:3].upper()}:{int(val)}/{int(cap)}", True, RED if near_cap else color)
-            # self.screen.blit(t, (x, y))
-            x += t.get_width() + 12
-
-        hint = "WASD/Arrows:scroll  |  Scroll:zoom  |  RMB drag:pan  |  Click:select  |  ESC:fermer"
-        ht = font.render(hint, True, GRAY)
-        # self.screen.blit(ht, (8, SCREEN_H - 40))
 
         if self._hud_msg_timer > 0 and self._hud_msg:
             try:

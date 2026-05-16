@@ -12,6 +12,7 @@ class Debris:
         self.y = float(y)
         self.resources = {r: float(v) for r, v in resources.items() if v > 0}
         self._collected = False
+        self.revealed = False
 
     def is_clicked(self, mx, my, camera):
         sx, sy = camera.world_to_screen(self.x, self.y)

@@ -121,7 +121,7 @@ class ShipUI:
         STATE_LABELS = {
             MISSION_IDLE:     "En attente",
             MISSION_TRAVEL:   "En transit",
-            MISSION_DISCOVER: "En découverte",
+            MISSION_DISCOVER: "En exploration",
             MISSION_MINE:     "En extraction",
             MISSION_RETURN:   "Retour",
             MISSION_PATROL:   "En navigation",
@@ -218,7 +218,7 @@ class ShipUI:
         if s.state == MISSION_DISCOVER:
             remaining = max(0, getattr(s, "_discover_timer", 0))
             total = max(1, getattr(s, "_discover_duration", 1))
-            dt_t = df.render(f"Découverte  :  {remaining:.0f}s restantes", True, GOLD)
+            dt_t = df.render(f"Exploration  :  {remaining:.0f}s restantes", True, GOLD)
             surface.blit(dt_t, (pr.x + 12, y))
             y += 15
             progress = max(0.0, min(1.0, 1.0 - remaining / total))

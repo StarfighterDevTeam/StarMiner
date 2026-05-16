@@ -628,6 +628,10 @@ class PlanetUI:
             mtype, ship = self._mission_mode
         elif patrol_ship:
             mtype, ship = "patrol", patrol_ship
+            # Auto-adapt: unexplored planet + explore-capable ship → show as explore mission
+            if (not planet.explored
+                    and "explore" in SHIP_DEFS.get(ship.type, {}).get("missions", [])):
+                mtype = "explore"
         else:
             return
 
@@ -822,6 +826,50 @@ class PlanetUI:
         panel = pygame.Surface((w, h), pygame.SRCALPHA)
         panel.fill((8, 12, 28, 210))
         pygame.draw.rect(panel, ORANGE, (0, 0, w, h), 1, border_radius=4)
+        surface.blit(panel, (tx, ty))
+        for i, (txt, color) in enumerate(lines):
+            surface.blit(f.render(txt, True, color), (tx + pad, ty + pad // 2 + i * line_h))
+
+    def draw_debris_hover(self, surface, debris, camera, ship):
+        dist = math.hypot(ship.x - debris.x, ship.y - debris.y)
+        travel_to = dist / max(ship.speed, 1)
+        dist_back = math.hypot(debris.x - ship.home.x, debris.y - ship.home.y)
+        travel_back = dist_back / max(ship.speed, 1)
+        fuel = (dist + dist_back) * ship.fuel_rate
+        fuel_avail = ship.home.resources.get(ship.fuel_type, 0) + ship.fuel_remaining
+        fuel_ok = fuel_avail >= fuel
+        cargo_total = sum(debris.resources.values())
+        cap_left = ship.capacity - sum(ship.cargo.values())
+
+        lines = []
+        if not fuel_ok:
+            lines.append((f"{ship.fuel_type.capitalize()} insuffisant", RED))
+        else:
+            lines.append(("→ Collecter les débris", GOLD))
+            lines.append((f"Aller   : {_fmt_time(travel_to)}", UI_TEXT))
+            lines.append((f"Retour  : {_fmt_time(travel_back)}", UI_TEXT))
+            lines.append((f"Total   : {_fmt_time(travel_to + travel_back)}", CYAN))
+            if debris.resources:
+                res_parts = [f"{res[:3].upper()}:{int(v)}"
+                             for res, v in debris.resources.items() if v > 0]
+                lines.append((f"Contenu : {', '.join(res_parts)}", ORANGE))
+            lines.append((f"Cargo   : {int(cargo_total)} / {int(cap_left)} dispo", ORANGE if cargo_total > cap_left else UI_TEXT))
+        lines.append((f"Carburant : {fuel:.0f} {ship.fuel_type}", GREEN if fuel_ok else RED))
+
+        f = _font(11)
+        line_h = 15
+        pad = 8
+        w = max(f.size(txt)[0] for txt, _ in lines) + pad * 2
+        h = len(lines) * line_h + pad
+        sx, sy = camera.world_to_screen(debris.x, debris.y)
+        tx = int(sx) + 18
+        ty = int(sy) - h // 2
+        tx = min(tx, int(SCREEN_W) - w - 4)
+        ty = max(ty, 4)
+        ty = min(ty, int(SCREEN_H) - h - 4)
+        panel = pygame.Surface((w, h), pygame.SRCALPHA)
+        panel.fill((8, 12, 28, 210))
+        pygame.draw.rect(panel, GOLD, (0, 0, w, h), 1, border_radius=4)
         surface.blit(panel, (tx, ty))
         for i, (txt, color) in enumerate(lines):
             surface.blit(f.render(txt, True, color), (tx + pad, ty + pad // 2 + i * line_h))
@@ -1109,7 +1157,7 @@ class PlanetUI:
             else:
                 st_txt, st_col = {
                     "travel":     ("En transit",   CYAN),
-                    "discovering":("Découverte",   GOLD),
+                    "discovering":("Exploration",   GOLD),
                     "mining":     ("Extraction",   ORANGE),
                     "returning":  ("Retour base",  GREEN),
                     "exploring":  ("Exploration",  CYAN),
@@ -1128,9 +1176,11 @@ class PlanetUI:
 
             if ship.state == "idle":
                 missions = SHIP_DEFS[ship.type]["missions"]
-                n = len(missions)
+                # "explore" is handled automatically via "navigate" hover — no separate button
+                display_missions = [m for m in missions if m != "explore"]
+                n = len(display_missions)
                 bx = right - n * 76 - (n - 1) * 6 - 4
-                for mi, mtype in enumerate(missions):
+                for mi, mtype in enumerate(display_missions):
                     is_active = (patrol_mode_ship is ship) if mtype in ("patrol", "navigate") else (self._mission_mode == (mtype, ship))
                     enabled = not (mtype in ("patrol", "navigate")
                                    and ship.fuel_capacity is not None
