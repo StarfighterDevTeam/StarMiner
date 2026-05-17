@@ -367,6 +367,47 @@ class Game:
                     self.camera.handle_event(event)
                 continue
 
+            # Right-click shortcut: navigate or explore with selected ship
+            if (event.type == pygame.MOUSEBUTTONDOWN and event.button == 3
+                    and self.ship_ui.visible and self.ship_ui.ship):
+                _s = self.ship_ui.ship
+                _on_ui = (
+                    (self.ui.visible and self.ui.panel_rect.collidepoint((mx, my))) or
+                    self.ship_ui.panel_rect.collidepoint((mx, my)) or
+                    self.colony_bar.contains_point((mx, my), self.planets)
+                )
+                if not _on_ui:
+                    _ms = SHIP_DEFS.get(_s.type, {}).get("missions", [])
+                    wx, wy = self.camera.screen_to_world(mx, my)
+                    ok = True
+                    if "navigate" in _ms or "patrol" in _ms:
+                        # Auto-detect explore/collect, otherwise navigate
+                        if (self._hovered_planet and not self._hovered_planet.explored
+                                and "explore" in _ms):
+                            ok = _s.send_explore(self._hovered_planet)
+                        elif self._hovered_debris and _s.capacity > 0:
+                            ok = _s.send_collect(self._hovered_debris)
+                        else:
+                            dock_planet = next(
+                                (p for p in self.planets
+                                 if p.colonized
+                                 and (wx - p.x) ** 2 + (wy - p.y) ** 2 < (p.size + 10) ** 2),
+                                None)
+                            if dock_planet:
+                                wx, wy = dock_planet.x, dock_planet.y
+                            ok = _s.send_patrol(wx, wy, dock_planet=dock_planet,
+                                                planets=self.planets)
+                    elif "explore" in _ms and self._hovered_planet and not self._hovered_planet.explored:
+                        ok = _s.send_explore(self._hovered_planet)
+                    else:
+                        ok = True  # nothing to do, let camera handle drag
+                        _on_ui = True  # fall through to camera
+                    if not _on_ui:
+                        if not ok:
+                            self._hud_msg = f"Carburant insuffisant ({_s.fuel_type})"
+                            self._hud_msg_timer = 3.0
+                        continue  # swallow the right-click, no camera drag
+
             # Camera (zoom, pan)
             self.camera.handle_event(event)
 
