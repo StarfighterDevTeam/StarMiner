@@ -490,21 +490,20 @@ class Game:
             self.ship_ui.ship.draw_selected(self.screen, self.camera)
         if self._hovered_ship:
             self._hovered_ship.draw_hover(self.screen, self.camera)
-        # Range circle for combat ships (patrol mode or selected in ShipUI)
-        _range_ship = self._patrol_mode_ship or (
-            self.ship_ui.ship if self.ship_ui.visible else None)
+        # Range circle for combat ships (pending dispatch or selected in ShipUI)
+        _pending_ship = self._pending_dispatch[0] if self._pending_dispatch else None
+        _range_ship = _pending_ship or (self.ship_ui.ship if self.ship_ui.visible else None)
         if _range_ship:
             self._draw_patrol_range_circle(_range_ship)
 
         dispatch_modes = {}
-        if self._patrol_mode_ship:
-            ms = SHIP_DEFS.get(self._patrol_mode_ship.type, {}).get("missions", [])
-            dispatch_modes[self._patrol_mode_ship] = "navigate" if "navigate" in ms else "patrol"
-        if self._collect_mode_ship:
-            dispatch_modes[self._collect_mode_ship] = "recycle"
+        if self._pending_dispatch:
+            _ds, _dm = self._pending_dispatch
+            dispatch_modes[_ds] = _dm
         self.ui.draw(self.screen, self.planets, self.highways, dispatch_modes=dispatch_modes)
         if self._hovered_planet:
-            _hint_ship = self._patrol_mode_ship
+            _is_nav = self._pending_dispatch and self._pending_dispatch[1] in ("navigate", "patrol")
+            _hint_ship = self._pending_dispatch[0] if _is_nav else None
             if not _hint_ship and self.ship_ui.visible and self.ship_ui.ship:
                 _s = self.ship_ui.ship
                 _ms = SHIP_DEFS.get(_s.type, {}).get("missions", [])
@@ -513,17 +512,16 @@ class Game:
             self.ui.draw_mission_hover(self.screen, self._hovered_planet, self.camera, self.highways,
                                        patrol_ship=_hint_ship)
         elif self._hovered_debris and not self._hovered_planet:
-            _debris_ship = (self._patrol_mode_ship
-                            or self._collect_mode_ship
+            _debris_ship = (_pending_ship
                             or (self.ship_ui.ship if self.ship_ui.visible else None))
             if _debris_ship:
                 self.ui.draw_debris_hover(self.screen, self._hovered_debris, self.camera,
                                           _debris_ship)
-        elif self._patrol_mode_ship:
+        elif self._pending_dispatch and self._pending_dispatch[1] in ("navigate", "patrol"):
             mx, my = pygame.mouse.get_pos()
             wx, wy = self.camera.screen_to_world(mx, my)
             self.ui.draw_patrol_hover(self.screen, wx, wy, self.camera,
-                                      self._patrol_mode_ship, planets=self.planets)
+                                      self._pending_dispatch[0], planets=self.planets)
         self.ship_ui.draw(self.screen, dispatch_modes=dispatch_modes)
         self.colony_bar.draw(self.screen, self.planets,
                              selected_planet=self.ui.planet if self.ui.visible else None,
@@ -548,8 +546,8 @@ class Game:
             color = (180, 180, 180) if ok else (220, 70, 70)
             _draw_dashed_line(self.screen, color, src, dst)
 
-        if self._patrol_mode_ship:
-            ship = self._patrol_mode_ship
+        if self._pending_dispatch and self._pending_dispatch[1] in ("navigate", "patrol"):
+            ship = self._pending_dispatch[0]
             src_x = ship.home.x if ship.is_docked else ship.x
             src_y = ship.home.y if ship.is_docked else ship.y
             src = self.camera.world_to_screen(src_x, src_y)
@@ -613,7 +611,7 @@ class Game:
         pygame.draw.polygon(self.screen, color, pts, 2)
 
     def _draw_patrol_overlay(self):
-        if not self._patrol_mode_ship:
+        if not (self._pending_dispatch and self._pending_dispatch[1] in ("navigate", "patrol")):
             return
         try:
             font = pygame.font.SysFont("consolas", 14)
@@ -628,7 +626,7 @@ class Game:
         self.screen.blit(t, (x, 18))
 
     def _draw_collect_overlay(self):
-        if not self._collect_mode_ship:
+        if not (self._pending_dispatch and self._pending_dispatch[1] == "recycle"):
             return
         try:
             font = pygame.font.SysFont("consolas", 14)
