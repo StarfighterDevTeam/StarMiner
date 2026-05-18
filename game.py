@@ -115,8 +115,7 @@ class Game:
             s = Ship(entry["type"], fp, faction=faction)
             s.x = float(wx)
             s.y = float(wy)
-            if s.fuel_capacity is not None:
-                s.fuel_remaining = s.fuel_capacity
+            s.fuel_remaining = s.fuel_capacity
             self.enemy_ships.append(s)
 
     def _spawn_initial_debris(self):
@@ -197,8 +196,7 @@ class Game:
                 continue
             s.update(dt, self.planets, self.highways, all_ships)
             if s.state == "idle":
-                if s.fuel_capacity is not None:
-                    s.fuel_remaining = s.fuel_capacity  # enemies magically refuel when idle
+                s.fuel_remaining = s.fuel_capacity  # enemies magically refuel when idle
                 wx = random.randint(500, WORLD_W - 500)
                 wy = random.randint(500, WORLD_H - 500)
                 s.send_patrol(wx, wy)
@@ -287,8 +285,7 @@ class Game:
                         if (self._hovered_planet and not self._hovered_planet.explored
                                 and "explore" in SHIP_DEFS.get(ship.type, {}).get("missions", [])):
                             ok = ship.send_explore(self._hovered_planet)
-                        # Auto-dispatch: collect if hovering debris with cargo capacity
-                        elif self._hovered_debris and ship.capacity > 0:
+                        elif self._hovered_debris and SHIP_DEFS.get(ship.type, {}).get("can_recycle", False):
                             ok = ship.send_collect(self._hovered_debris)
                         else:
                             dock_planet = next(
@@ -385,7 +382,7 @@ class Game:
                         if (self._hovered_planet and not self._hovered_planet.explored
                                 and "explore" in _ms):
                             ok = _s.send_explore(self._hovered_planet)
-                        elif self._hovered_debris and _s.capacity > 0:
+                        elif self._hovered_debris and SHIP_DEFS.get(_s.type, {}).get("can_recycle", False):
                             ok = _s.send_collect(self._hovered_debris)
                         else:
                             dock_planet = next(
@@ -534,7 +531,7 @@ class Game:
         # Range circle for combat ships (patrol mode or selected in ShipUI)
         _range_ship = self._patrol_mode_ship or (
             self.ship_ui.ship if self.ship_ui.visible else None)
-        if _range_ship and _range_ship.fuel_capacity is not None:
+        if _range_ship:
             self._draw_patrol_range_circle(_range_ship)
 
         self.ui.draw(self.screen, self.planets, self.highways,
@@ -551,7 +548,7 @@ class Game:
         elif self._hovered_debris and not self._hovered_planet:
             _debris_ship = (self._patrol_mode_ship
                             or (self.ship_ui.ship if self.ship_ui.visible else None))
-            if _debris_ship:
+            if _debris_ship and SHIP_DEFS.get(_debris_ship.type, {}).get("can_recycle", False):
                 self.ui.draw_debris_hover(self.screen, self._hovered_debris, self.camera,
                                           _debris_ship)
         elif self._patrol_mode_ship:
@@ -607,7 +604,7 @@ class Game:
         Blocked directions pin to the ship position, naturally producing the
         sector/camembert cutoff seen when fuel is low or colonies are one-sided.
         """
-        if ship.fuel_capacity is None or ship.fuel_remaining < 1.0:
+        if ship.fuel_remaining < 1.0:
             return
         R = ship.fuel_remaining / ship.fuel_rate
         colonies = [

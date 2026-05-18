@@ -358,37 +358,18 @@ class ShipUI:
         surface.blit(fuel_rate_t, (pr.x + 12, y))
         y += 13
 
-        # Fuel tank gauge for combat ships (dedicated tank)
-        if s.fuel_capacity is not None:
-            ratio = max(0.0, min(1.0, s.fuel_remaining / s.fuel_capacity))
-            low = ratio < 0.25
-            fc = RED if ratio < 0.1 else (ORANGE if low else CYAN)
-            tank_label = f"Réservoir : {s.fuel_remaining:.0f} / {s.fuel_capacity} {s.fuel_type}"
-            surface.blit(_font(10).render(tank_label, True, fc), (pr.x + 12, y))
-            y += 13
-            bar_x, bar_y = pr.x + 12, y
-            bar_w, bar_h = pr.w - 24, 6
-            pygame.draw.rect(surface, (22, 28, 48), (bar_x, bar_y, bar_w, bar_h), border_radius=3)
-            fw = int(bar_w * ratio)
-            if fw > 0:
-                pygame.draw.rect(surface, fc, (bar_x, bar_y, fw, bar_h), border_radius=3)
-            pygame.draw.rect(surface, (50, 65, 100), (bar_x, bar_y, bar_w, bar_h), 1, border_radius=3)
-            y += 10
-        elif s.fuel_remaining > 0:
-            fav = s.home.resources.get(s.fuel_type, 0)
-            low = s.fuel_remaining < 10 or s.fuel_remaining < fav * 0.15
-            fc = ORANGE if low else CYAN
-            moving = s.state in (MISSION_TRAVEL, MISSION_RETURN, MISSION_PATROL)
-            _mtype = getattr(s, "_mission_type", None)
-            _past_pnr = (
-                _mtype in MISSION_ONE_WAY
-                and s.state == MISSION_TRAVEL
-                and s.target_planet is not None
-                and math.hypot(s.x - s.home.x, s.y - s.home.y)
-                    >= math.hypot(s.x - s.target_planet.x, s.y - s.target_planet.y)
-            )
-            label = ("En transit (Point of No Return reached)" if _past_pnr
-                     else "En transit" if moving
-                     else "Réservé    ")
-            rem_t = _font(10).render(f"{label} : {s.fuel_remaining:.0f} {s.fuel_type}", True, fc)
-            surface.blit(rem_t, (pr.x + 12, y))
+        # Fuel tank gauge
+        ratio = max(0.0, min(1.0, s.fuel_remaining / s.fuel_capacity))
+        low = ratio < 0.25
+        fc = RED if ratio < 0.1 else (ORANGE if low else CYAN)
+        tank_label = f"Réservoir : {s.fuel_remaining:.0f} / {s.fuel_capacity} {s.fuel_type}"
+        surface.blit(_font(10).render(tank_label, True, fc), (pr.x + 12, y))
+        y += 13
+        bar_x, bar_y = pr.x + 12, y
+        bar_w, bar_h = pr.w - 24, 6
+        pygame.draw.rect(surface, (22, 28, 48), (bar_x, bar_y, bar_w, bar_h), border_radius=3)
+        fw = int(bar_w * ratio)
+        if fw > 0:
+            pygame.draw.rect(surface, fc, (bar_x, bar_y, fw, bar_h), border_radius=3)
+        pygame.draw.rect(surface, (50, 65, 100), (bar_x, bar_y, bar_w, bar_h), 1, border_radius=3)
+        y += 10

@@ -40,9 +40,6 @@ SHIP_SPRITE_FRAMES = {
 SHIP_DRAW_SIZE = 28
 _ANIM_FRAME_DUR = 1 / 8   # 8 fps animation
 
-MINE_RESOURCES = frozenset({"iron", "silver", "gold"})
-PUMP_RESOURCES = frozenset({"oil", "deuterium"})
-
 MISSION_IDLE     = "idle"
 MISSION_TRAVEL   = "travel"
 MISSION_EXPLORE  = "exploring"
@@ -129,10 +126,10 @@ class Ship:
     # ── fuel helpers ─────────────────────────────────────────────
     def fuel_cost(self, mtype, target):
         dist = math.hypot(self.home.x - target.x, self.home.y - target.y)
-        return dist * self.fuel_rate * (2.0 if mtype in ("mine", "pump", "transport") else 1.0)
+        return dist * self.fuel_rate * (2.0 if mtype in ("mine", "transport") else 1.0)
 
     def has_fuel_for(self, mtype, target):
-        return self.home.resources.get(self.fuel_type, 0) >= self.fuel_cost(mtype, target)
+        return self.fuel_remaining >= self.fuel_cost(mtype, target)
 
     def apply_upgrade(self, level):
         """Recalculate combat/cargo stats from base SHIP_DEFS × upgrade multiplier (+15%/level)."""
@@ -147,8 +144,7 @@ class Ship:
             self.damage = defn.get("damage", 0) * mult
         if self.fire_range > 0:
             self.fire_range = defn.get("fire_range", 0) * mult
-        if self.fuel_capacity is not None:
-            self.fuel_capacity = int(defn["fuel_capacity"] * mult)
+        self.fuel_capacity = int(defn["fuel_capacity"] * mult)
         if self.capacity > 0:
             self.capacity = int(defn["capacity"] * mult)
 
@@ -168,38 +164,24 @@ class Ship:
     def can_patrol_to(self, wx, wy, planets=None):
         """True if this ship can reach (wx,wy) and still return to a colonized planet."""
         fuel_leg = self.fuel_cost_patrol(wx, wy)
-        if self.fuel_capacity is not None:
-            fuel_return = self._fuel_to_nearest_colony(wx, wy, planets or [])
-            return self.fuel_remaining >= fuel_leg + fuel_return
-        else:
-            available = self.home.resources.get(self.fuel_type, 0) + self.fuel_remaining
-            return available >= fuel_leg
+        fuel_return = self._fuel_to_nearest_colony(wx, wy, planets or [])
+        return self.fuel_remaining >= fuel_leg + fuel_return
 
     def has_fuel_for_patrol(self, wx, wy):
-        """Legacy check used by non-combat ships and enemy AI."""
-        available = self.home.resources.get(self.fuel_type, 0) + self.fuel_remaining
-        return available >= self.fuel_cost_patrol(wx, wy)
+        return self.fuel_remaining >= self.fuel_cost_patrol(wx, wy)
 
-    def _load_fuel(self, amount):
-        self.home.resources[self.fuel_type] -= amount
-        self.fuel_remaining = amount
-
-    def _refund_fuel(self):
-        if self.fuel_remaining > 0:
-            self.home.resources[self.fuel_type] = (
-                self.home.resources.get(self.fuel_type, 0) + self.fuel_remaining)
-        self.fuel_remaining = 0.0
+    def _refuel_at_dock(self, planet):
+        needed = self.fuel_capacity - self.fuel_remaining
+        available = planet.resources.get(self.fuel_type, 0)
+        amount = min(needed, available)
+        if amount > 0:
+            planet.resources[self.fuel_type] -= amount
+            self.fuel_remaining += amount
 
     # ── missions ─────────────────────────────────────────────────
     def send_explore(self, target):
         if self.state != MISSION_IDLE: return False
-        fuel = self.fuel_cost("explore", target)
-        if self.fuel_capacity is not None:
-            # Dedicated tank: drain from tank, no borrowing from home
-            if self.fuel_remaining < fuel: return False
-        else:
-            if self.home.resources.get(self.fuel_type, 0) < fuel: return False
-            self._load_fuel(fuel)
+        if self.fuel_remaining < self.fuel_cost("explore", target): return False
         self.target_planet = target
         self.state = MISSION_TRAVEL
         self._mission_type = "explore"
@@ -207,32 +189,17 @@ class Ship:
 
     def send_mine(self, target):
         if self.state != MISSION_IDLE: return False
-        if self.type != "Miner": return False
-        fuel = self.fuel_cost("mine", target)
-        if self.home.resources.get(self.fuel_type, 0) < fuel: return False
-        self._load_fuel(fuel)
+        if "mine" not in SHIP_DEFS.get(self.type, {}).get("missions", []): return False
+        if self.fuel_remaining < self.fuel_cost("mine", target): return False
         self.target_planet = target
         self.state = MISSION_TRAVEL
         self._mission_type = "mine"
         return True
 
-    def send_pump(self, target):
-        if self.state != MISSION_IDLE: return False
-        if self.type != "Tanker": return False
-        fuel = self.fuel_cost("pump", target)
-        if self.home.resources.get(self.fuel_type, 0) < fuel: return False
-        self._load_fuel(fuel)
-        self.target_planet = target
-        self.state = MISSION_TRAVEL
-        self._mission_type = "pump"
-        return True
-
     def send_colonize(self, target):
         if self.state != MISSION_IDLE: return False
         if self.type != "Colonizer": return False
-        fuel = self.fuel_cost("colonize", target)
-        if self.home.resources.get(self.fuel_type, 0) < fuel: return False
-        self._load_fuel(fuel)
+        if self.fuel_remaining < self.fuel_cost("colonize", target): return False
         self.target_planet = target
         self.state = MISSION_TRAVEL
         self._mission_type = "colonize"
@@ -241,9 +208,7 @@ class Ship:
     def send_highway(self, target):
         if self.state != MISSION_IDLE: return False
         if self.type != "Constructor": return False
-        fuel = self.fuel_cost("highway", target)
-        if self.home.resources.get(self.fuel_type, 0) < fuel: return False
-        self._load_fuel(fuel)
+        if self.fuel_remaining < self.fuel_cost("highway", target): return False
         self.target_planet = target
         self.state = MISSION_TRAVEL
         self._mission_type = "highway"
@@ -264,9 +229,7 @@ class Ship:
         if self.state != MISSION_IDLE: return False
         if self.capacity <= 0: return False
         if not target.colonized or target is self.home: return False
-        fuel = self.fuel_cost("transport", target)
-        if self.home.resources.get(self.fuel_type, 0) < fuel: return False
-        self._load_fuel(fuel)
+        if self.fuel_remaining < self.fuel_cost("transport", target): return False
         self._load_cargo_from(self.home, list(outbound_res))
         self._transport_target   = target
         self._transport_outbound = list(outbound_res)
@@ -280,10 +243,9 @@ class Ship:
     def send_collect(self, debris):
         if self.state != MISSION_IDLE: return False
         if self.capacity <= 0: return False
-        dist = math.hypot(self.home.x - debris.x, self.home.y - debris.y)
-        fuel = dist * self.fuel_rate * 2.0
-        if self.home.resources.get(self.fuel_type, 0) < fuel: return False
-        self._load_fuel(fuel)
+        dist = math.hypot(self.x - debris.x, self.y - debris.y)
+        multiplier = 2.0 if SHIP_DEFS.get(self.type, {}).get("can_transport", False) else 1.0
+        if self.fuel_remaining < dist * self.fuel_rate * multiplier: return False
         self._collect_debris = debris
         self.target_planet   = None
         self.state           = MISSION_TRAVEL
@@ -292,21 +254,11 @@ class Ship:
 
     def send_patrol(self, wx, wy, dock_planet=None, planets=None):
         if self.state not in (MISSION_IDLE, MISSION_PATROL, MISSION_COMBAT): return False
-        fuel_leg = self.fuel_cost_patrol(wx, wy)
-        if self.fuel_capacity is not None:
-            if not self.pnr_advisory:
-                # Combat ship: validate leg + return-to-nearest-colony budget from tank
-                fuel_return = self._fuel_to_nearest_colony(wx, wy, planets) if planets else 0.0
-                if self.fuel_remaining < fuel_leg + fuel_return:
-                    return False
-            # No pre-deduction — _move_toward drains the tank continuously during travel
-        else:
-            # Non-combat / enemy: borrow from home planet as before
-            available = self.home.resources.get(self.fuel_type, 0) + self.fuel_remaining
-            if available < fuel_leg: return False
-            net = fuel_leg - self.fuel_remaining
-            self.home.resources[self.fuel_type] = self.home.resources.get(self.fuel_type, 0) - net
-            self.fuel_remaining = fuel_leg
+        if not self.pnr_advisory:
+            fuel_leg = self.fuel_cost_patrol(wx, wy)
+            fuel_return = self._fuel_to_nearest_colony(wx, wy, planets) if planets else 0.0
+            if self.fuel_remaining < fuel_leg + fuel_return:
+                return False
         self._patrol_dest = (wx, wy)
         self._dock_planet = dock_planet
         self._pre_combat_dest = None
@@ -380,7 +332,10 @@ class Ship:
                             space -= take
                     self._collect_debris._collected = True
                     self._collect_debris = None
-                    self.state = MISSION_RETURN
+                    if SHIP_DEFS.get(self.type, {}).get("can_transport", False):
+                        self.state = MISSION_RETURN
+                    else:
+                        self.state = MISSION_IDLE
                 elif self._mission_type == "transport":
                     for res, amt in self.cargo.items():
                         if amt > 0:
@@ -422,10 +377,7 @@ class Ship:
 
         elif self.state == MISSION_MINE:
             self._mine_timer -= dt
-            extractable = PUMP_RESOURCES if self._mission_type == "pump" else MINE_RESOURCES
             for res in self.target_planet.available_resources:
-                if res not in extractable:
-                    continue
                 space = self.capacity - sum(self.cargo.values())
                 amount = min(10 * dt, space)
                 self.cargo[res] = self.cargo.get(res, 0) + amount
@@ -439,7 +391,7 @@ class Ship:
             if dist < 40:
                 self.x = self.home.x
                 self.y = self.home.y
-                self._refund_fuel()
+                self._refuel_at_dock(self.home)
                 for res, amt in self.cargo.items():
                     self.home.resources[res] = self.home.resources.get(res, 0) + amt
                 self.cargo = {r: 0.0 for r in RESOURCE_NAMES}
@@ -447,11 +399,8 @@ class Ship:
                 prev_mtype  = getattr(self, "_mission_type", None)
                 self.state = MISSION_IDLE
                 self.target_planet = None
-                if self.repeat and prev_mtype in ("mine", "pump") and prev_target:
-                    if prev_mtype == "pump":
-                        self.send_pump(prev_target)
-                    else:
-                        self.send_mine(prev_target)
+                if self.repeat and prev_mtype == "mine" and prev_target:
+                    self.send_mine(prev_target)
                 elif self.repeat and prev_mtype == "transport" and self._transport_target:
                     self.send_transport(
                         self._transport_target,
@@ -481,15 +430,7 @@ class Ship:
                     self.home = self._dock_planet
                     if self not in self.home.ships:
                         self.home.ships.append(self)
-                    # Refuel combat ships from the dock planet's resources
-                    if self.fuel_capacity is not None:
-                        needed = self.fuel_capacity - self.fuel_remaining
-                        available = self.home.resources.get(self.fuel_type, 0)
-                        amount = min(needed, available)
-                        self.home.resources[self.fuel_type] -= amount
-                        self.fuel_remaining += amount
-                if self.fuel_capacity is None:
-                    self._refund_fuel()  # non-combat ships return unused fuel to home
+                    self._refuel_at_dock(self.home)
                 self._patrol_dest = None
                 self._dock_planet = None
                 self.state = MISSION_IDLE
@@ -535,8 +476,8 @@ class Ship:
         return self._effective_speed
 
     def _move_toward(self, tx, ty, dt, speed=None):
-        if self.fuel_capacity is not None and self.fuel_remaining <= 0.0:
-            return  # Stranded: dedicated tank empty, cannot move
+        if self.fuel_remaining <= 0.0:
+            return  # Stranded: tank empty, cannot move
         dx = tx - self.x
         dy = ty - self.y
         dist = math.hypot(dx, dy)

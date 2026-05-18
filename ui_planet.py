@@ -353,7 +353,7 @@ class PlanetUI:
                 self._collect_request = ship
                 self.show_message("Cliquez sur un débris visible pour le collecter")
 
-        elif tag.startswith(("explore:", "mine:", "pump:", "colonize:", "highway:")):
+        elif tag.startswith(("explore:", "mine:", "colonize:", "highway:")):
             mtype, sid = tag.split(":")
             ship = next((s for s in p.ships if s.id == int(sid)), None)
             if ship:
@@ -362,7 +362,7 @@ class PlanetUI:
                     self.show_message("Mission annulée")
                 else:
                     self._mission_mode = (mtype, ship)
-                    verb = {"explore": "explorer", "mine": "miner", "pump": "pomper",
+                    verb = {"explore": "explorer", "mine": "miner",
                             "colonize": "coloniser", "highway": "relier en autoroute"}.get(mtype, mtype)
                     self.show_message(f"Cliquez sur une planète à {verb}")
 
@@ -379,22 +379,15 @@ class PlanetUI:
             if target_planet.explored:
                 self.show_message(f"{target_planet.name} est déjà explorée")
                 return
-        if mtype in ("mine", "pump"):
+        if mtype == "mine":
             if target_planet is ship.home:
                 self.show_message("Même planète — choisissez une autre")
                 return
             if not target_planet.explored:
                 self.show_message(f"Explorez d'abord {target_planet.name}")
                 return
-        if mtype == "mine":
-            from ship import MINE_RESOURCES
-            if not any(r in MINE_RESOURCES for r in target_planet.available_resources):
-                self.show_message(f"{target_planet.name} n'a pas de ressources solides")
-                return
-        if mtype == "pump":
-            from ship import PUMP_RESOURCES
-            if not any(r in PUMP_RESOURCES for r in target_planet.available_resources):
-                self.show_message(f"{target_planet.name} n'a pas de ressources fluides")
+            if not target_planet.available_resources:
+                self.show_message(f"{target_planet.name} n'a aucune ressource")
                 return
         if mtype == "colonize":
             if not target_planet.explored:
@@ -442,8 +435,6 @@ class PlanetUI:
             ok = ship.send_explore(target_planet)
         elif mtype == "mine":
             ok = ship.send_mine(target_planet)
-        elif mtype == "pump":
-            ok = ship.send_pump(target_planet)
         elif mtype == "highway":
             ok = ship.send_highway(target_planet)
         else:
@@ -600,7 +591,6 @@ class PlanetUI:
             surface.blit(mt, (SCREEN_W // 2 - mt.get_width() // 2, 20))
 
     def _mission_ok(self, mtype, ship, planet, highways=None):
-        from ship import MINE_RESOURCES, PUMP_RESOURCES
         has_highway = (highways is not None and
                        frozenset({ship.home.id, planet.id}) in highways)
         if planet is ship.home:
@@ -609,10 +599,7 @@ class PlanetUI:
             if planet.explored: return False
         elif mtype == "mine":
             if not planet.explored: return False
-            if not any(r in MINE_RESOURCES for r in planet.available_resources): return False
-        elif mtype == "pump":
-            if not planet.explored: return False
-            if not any(r in PUMP_RESOURCES for r in planet.available_resources): return False
+            if not planet.available_resources: return False
         elif mtype == "colonize":
             if not (planet.explored and planet.habitable and not planet.colonized): return False
         elif mtype == "highway":
@@ -646,12 +633,11 @@ class PlanetUI:
 
         if mtype == "explore":
             mission_dur = getattr(ship, "_discover_duration", 10.0)
-        elif mtype in ("mine", "pump"):
+        elif mtype == "mine":
             mission_dur = getattr(ship, "_mine_duration", 8.0)
         else:
             mission_dur = 0.0
 
-        from ship import MINE_RESOURCES, PUMP_RESOURCES
         one_way = mtype in MISSION_ONE_WAY or mtype == "patrol"
         total = travel_to + mission_dur + (0 if one_way else travel_back)
 
@@ -663,12 +649,8 @@ class PlanetUI:
             error = (f"{planet.name} déjà explorée", ORANGE)
         elif mtype == "mine" and not planet.explored:
             error = ("Planète non explorée", RED)
-        elif mtype == "mine" and not any(r in MINE_RESOURCES for r in planet.available_resources):
-            error = ("Pas de ressources solides (iron/silver/gold)", ORANGE)
-        elif mtype == "pump" and not planet.explored:
-            error = ("Planète non explorée", RED)
-        elif mtype == "pump" and not any(r in PUMP_RESOURCES for r in planet.available_resources):
-            error = ("Pas de ressources fluides (oil/deuterium)", ORANGE)
+        elif mtype == "mine" and not planet.available_resources:
+            error = ("Aucune ressource sur cette planète", ORANGE)
         elif mtype == "colonize" and not planet.explored:
             error = ("Planète non explorée", RED)
         elif mtype == "colonize" and not planet.habitable:
@@ -684,35 +666,30 @@ class PlanetUI:
         elif mtype == "transport" and planet is ship.home:
             error = ("Même planète", RED)
 
-        fuel_ok_return = True  # default; overridden for dedicated-tank ships
+        fuel_ok_return = True
         if mtype in ("patrol", "navigate"):
             fuel = ship.fuel_cost_patrol(planet.x, planet.y)
-            if ship.fuel_capacity is not None:
-                fuel_return = ship._fuel_to_nearest_colony(planet.x, planet.y, [])
-                fuel_ok_leg = ship.fuel_remaining >= fuel
-                fuel_ok_return = ship.fuel_remaining >= fuel + fuel_return
-                if ship.pnr_advisory:
-                    fuel_ok = fuel_ok_leg
-                    if fuel_ok_return:
-                        line_color = GREEN
-                    elif fuel_ok_leg:
-                        line_color = GOLD
-                    else:
-                        line_color = RED
+            fuel_return = ship._fuel_to_nearest_colony(planet.x, planet.y, [])
+            fuel_ok_leg = ship.fuel_remaining >= fuel
+            fuel_ok_return = ship.fuel_remaining >= fuel + fuel_return
+            if ship.pnr_advisory:
+                fuel_ok = fuel_ok_leg
+                if fuel_ok_return:
+                    line_color = GREEN
+                elif fuel_ok_leg:
+                    line_color = GOLD
                 else:
-                    fuel_ok = fuel_ok_return
-                    line_color = GREEN if fuel_ok else RED
-                fuel_line = (f"Réservoir : {fuel:.0f} requis / {ship.fuel_remaining:.0f} {ship.fuel_type}",
-                             line_color)
+                    line_color = RED
             else:
-                fuel_avail = ship.home.resources.get(ship.fuel_type, 0) + ship.fuel_remaining
-                fuel_ok = fuel_avail >= fuel
-                fuel_line = (f"Carburant : {fuel:.0f} {ship.fuel_type}", GREEN if fuel_ok else RED)
+                fuel_ok = fuel_ok_return
+                line_color = GREEN if fuel_ok else RED
+            fuel_line = (f"Réservoir : {fuel:.0f} requis / {ship.fuel_remaining:.0f} {ship.fuel_type}",
+                         line_color)
         else:
             fuel = ship.fuel_cost(mtype, planet)
-            fuel_avail = ship.home.resources.get(ship.fuel_type, 0)
-            fuel_ok = fuel_avail >= fuel
-            fuel_line = (f"Carburant : {fuel:.0f} {ship.fuel_type}", GREEN if fuel_ok else RED)
+            fuel_ok = ship.fuel_remaining >= fuel
+            fuel_line = (f"Réservoir : {fuel:.0f} requis / {ship.fuel_remaining:.0f} {ship.fuel_type}",
+                         GREEN if fuel_ok else RED)
         if error is None and not fuel_ok:
             error = (f"{ship.fuel_type.capitalize()} insuffisant"
                      f" ({fuel:.0f} requis)", RED)
@@ -736,8 +713,6 @@ class PlanetUI:
                 lines.append((f"Découv. : {_fmt_time(mission_dur)}", GOLD))
             elif mtype == "mine":
                 lines.append((f"Extract.: {_fmt_time(mission_dur)}", ORANGE))
-            elif mtype == "pump":
-                lines.append((f"Pompage : {_fmt_time(mission_dur)}", CYAN))
             _pnr_warn = (mtype == "navigate" and getattr(ship, "pnr_advisory", False)
                          and not fuel_ok_return)
             if not one_way and not _pnr_warn:
@@ -753,7 +728,6 @@ class PlanetUI:
         _MTYPE_TITLES = {
             "explore":  "Explorer",
             "mine":     "Extraire",
-            "pump":     "Pomper",
             "colonize": "Coloniser",
             "highway":  "Autoroute",
             "patrol":   "Naviguer",
@@ -796,29 +770,23 @@ class PlanetUI:
         travel_to = dist / max(ship.speed, 1)
         fuel_leg = ship.fuel_cost_patrol(wx, wy)
 
-        if ship.fuel_capacity is not None:
-            fuel_return = ship._fuel_to_nearest_colony(wx, wy, planets or [])
-            fuel_needed = fuel_leg + fuel_return
-            fuel_ok_leg = ship.fuel_remaining >= fuel_leg
-            fuel_ok_return = ship.fuel_remaining >= fuel_needed
-            if ship.pnr_advisory:
-                fuel_ok = fuel_ok_leg
-                if fuel_ok_return:
-                    fuel_color = GREEN
-                elif fuel_ok_leg:
-                    fuel_color = GOLD
-                else:
-                    fuel_color = RED
+        fuel_return = ship._fuel_to_nearest_colony(wx, wy, planets or [])
+        fuel_needed = fuel_leg + fuel_return
+        fuel_ok_leg = ship.fuel_remaining >= fuel_leg
+        fuel_ok_return = ship.fuel_remaining >= fuel_needed
+        if ship.pnr_advisory:
+            fuel_ok = fuel_ok_leg
+            if fuel_ok_return:
+                fuel_color = GREEN
+            elif fuel_ok_leg:
+                fuel_color = GOLD
             else:
-                fuel_ok = fuel_ok_return
-                fuel_color = GREEN if fuel_ok else RED
-            fuel_label = (f"Réservoir : {fuel_leg:.0f} aller / "
-                          f"{ship.fuel_remaining:.0f} dispo {ship.fuel_type}")
+                fuel_color = RED
         else:
-            fuel_avail = ship.home.resources.get(ship.fuel_type, 0) + ship.fuel_remaining
-            fuel_ok = fuel_avail >= fuel_leg
+            fuel_ok = fuel_ok_return
             fuel_color = GREEN if fuel_ok else RED
-            fuel_label = f"Carburant : {fuel_leg:.0f} {ship.fuel_type}"
+        fuel_label = (f"Réservoir : {fuel_leg:.0f} aller / "
+                      f"{ship.fuel_remaining:.0f} dispo {ship.fuel_type}")
 
         lines = []
         if not fuel_ok:
@@ -856,9 +824,9 @@ class PlanetUI:
         travel_to = dist / max(ship.speed, 1)
         dist_back = math.hypot(debris.x - ship.home.x, debris.y - ship.home.y)
         travel_back = dist_back / max(ship.speed, 1)
-        fuel = (dist + dist_back) * ship.fuel_rate
-        fuel_avail = ship.home.resources.get(ship.fuel_type, 0) + ship.fuel_remaining
-        fuel_ok = fuel_avail >= fuel
+        _can_transport = SHIP_DEFS.get(ship.type, {}).get("can_transport", False)
+        fuel = (dist + dist_back) * ship.fuel_rate if _can_transport else dist * ship.fuel_rate
+        fuel_ok = ship.fuel_remaining >= fuel
         cargo_total = sum(debris.resources.values())
         cap_left = max(0, ship.capacity - sum(ship.cargo.values()))
         cargo_ok = ship.capacity > 0 and cap_left >= cargo_total
@@ -879,7 +847,7 @@ class PlanetUI:
                           UI_TEXT if cargo_ok else ORANGE))
         lines.append((f"Carburant : {fuel:.0f} {ship.fuel_type}", GREEN if fuel_ok else RED))
 
-        title_txt = "Collecter" if cargo_ok else "Cargo insuffisant"
+        title_txt = "Recycler" if cargo_ok else "Cargo insuffisant"
         f_title = _font(12)
         f = _font(11)
         line_h = 15
@@ -1074,7 +1042,8 @@ class PlanetUI:
             missions_str = " / ".join(defn["missions"])
             mt = sf.render(f"Missions: {missions_str}", True, UI_TEXT if unlocked else (40, 45, 55))
             _old_clip = surface.get_clip()
-            surface.set_clip(pygame.Rect(pr.x + 6, ry + 2, right - 82 - pr.x, row_h - 4))
+            _inner = pygame.Rect(pr.x + 6, ry + 2, right - 82 - pr.x, row_h - 4)
+            surface.set_clip(_inner.clip(_old_clip))
             surface.blit(ct, (pr.x + 12, ry + 22))
             surface.blit(mt, (pr.x + 12, ry + 40))
             surface.set_clip(_old_clip)
@@ -1148,7 +1117,7 @@ class PlanetUI:
         scroll_offset     = self._fleet_scroll * 70
         ry                = y - scroll_offset + 4
 
-        _MISSION_LABELS = {"explore": "Explorer", "mine": "Extraire", "pump": "Pomper",
+        _MISSION_LABELS = {"explore": "Explorer", "mine": "Extraire",
                            "colonize": "Coloniser", "patrol": "Naviguer",
                            "highway": "Route"}
         mouse_pos = pygame.mouse.get_pos()
@@ -1217,18 +1186,21 @@ class PlanetUI:
                 for mi, mtype in enumerate(display_missions):
                     is_active = (patrol_mode_ship is ship) if mtype in ("patrol", "navigate") else (self._mission_mode == (mtype, ship))
                     enabled = not (mtype in ("patrol", "navigate")
-                                   and ship.fuel_capacity is not None
                                    and ship.fuel_remaining < 1.0)
                     btn = Button((bx + mi * 82, ry + 10, 76, 20),
                                  _MISSION_LABELS.get(mtype, mtype.capitalize()),
                                  tooltip=f"{mtype}:{ship.id}", active=is_active, enabled=enabled)
                     btn.handle_mouse(mouse_pos); btn.draw(surface)
                     self._buttons.append(btn)
-                if SHIP_DEFS[ship.type].get("capacity", 0) > 0:
+                _sdef = SHIP_DEFS[ship.type]
+                _can_recycle   = _sdef.get("can_recycle", False)
+                _can_transport = _sdef.get("can_transport", False)
+                if _can_recycle:
                     cbtn = Button((right - 80, ry + 32, 76, 16),
-                                  "Collecter", tooltip=f"collect:{ship.id}")
+                                  "Recycler", tooltip=f"collect:{ship.id}")
                     cbtn.handle_mouse(mouse_pos); cbtn.draw(surface)
                     self._buttons.append(cbtn)
+                if _can_transport:
                     is_cfg_open = (self._transport_cfg is not None
                                    and self._transport_cfg["ship"].id == ship.id)
                     tbtn = Button((right - 160, ry + 32, 76, 16),
@@ -1274,18 +1246,17 @@ class PlanetUI:
                 cargo_str = "  ".join(f"{int(v)} {r[:RESOURCE_MAX_CHAR]}" for r, v in ship.cargo.items() if v > 0)
                 surface.blit(sf.render(f"Cargo: {cargo_str}", True, GOLD), (pr.x + 12, ry + 36))
 
-            if ship.fuel_capacity is not None:
-                ratio = max(0.0, min(1.0, ship.fuel_remaining / ship.fuel_capacity))
-                fc = RED if ratio < 0.1 else (ORANGE if ratio < 0.25 else CYAN)
-                tank_lbl = f"Réservoir : {ship.fuel_remaining:.0f} / {ship.fuel_capacity} {ship.fuel_type}"
-                surface.blit(_font(9).render(tank_lbl, True, fc), (pr.x + 12, ry + 36))
-                bar_x, bar_y = pr.x + 12, ry + 47
-                bar_w, bar_h = content_w - 6, 4
-                pygame.draw.rect(surface, (22, 28, 48), (bar_x, bar_y, bar_w, bar_h), border_radius=2)
-                fw = int(bar_w * ratio)
-                if fw > 0:
-                    pygame.draw.rect(surface, fc, (bar_x, bar_y, fw, bar_h), border_radius=2)
-                pygame.draw.rect(surface, (40, 55, 80), (bar_x, bar_y, bar_w, bar_h), 1, border_radius=2)
+            ratio = max(0.0, min(1.0, ship.fuel_remaining / ship.fuel_capacity))
+            fc = RED if ratio < 0.1 else (ORANGE if ratio < 0.25 else CYAN)
+            tank_lbl = f"Réservoir : {ship.fuel_remaining:.0f} / {ship.fuel_capacity} {ship.fuel_type}"
+            surface.blit(_font(9).render(tank_lbl, True, fc), (pr.x + 12, ry + 36))
+            bar_x, bar_y = pr.x + 12, ry + 47
+            bar_w, bar_h = content_w - 6, 4
+            pygame.draw.rect(surface, (22, 28, 48), (bar_x, bar_y, bar_w, bar_h), border_radius=2)
+            fw = int(bar_w * ratio)
+            if fw > 0:
+                pygame.draw.rect(surface, fc, (bar_x, bar_y, fw, bar_h), border_radius=2)
+            pygame.draw.rect(surface, (40, 55, 80), (bar_x, bar_y, bar_w, bar_h), 1, border_radius=2)
 
             eta_data = _mission_eta(ship)
             if eta_data:

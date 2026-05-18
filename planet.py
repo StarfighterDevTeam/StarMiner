@@ -118,10 +118,9 @@ class Planet:
             if self.resources[res] > cap:
                 self.resources[res] = cap
 
-        # Auto-refuel combat ships docked here whenever fuel is available
+        # Auto-refuel docked ships whenever fuel is available
         for s in self.ships:
-            if (s.fuel_capacity is not None and s.is_docked
-                    and s.fuel_remaining < s.fuel_capacity):
+            if (s.is_docked and s.fuel_remaining < s.fuel_capacity):
                 needed = s.fuel_capacity - s.fuel_remaining
                 available = self.resources.get(s.fuel_type, 0)
                 amount = min(needed, available)
@@ -153,11 +152,10 @@ class Planet:
     def _spawn_ship(self, ship_type, all_ships):
         from ship import Ship
         s = Ship(ship_type, self)
-        if s.fuel_capacity is not None:
-            available = self.resources.get(s.fuel_type, 0)
-            amount = min(s.fuel_capacity, available)
-            self.resources[s.fuel_type] -= amount
-            s.fuel_remaining = amount
+        available = self.resources.get(s.fuel_type, 0)
+        amount = min(s.fuel_capacity, available)
+        self.resources[s.fuel_type] -= amount
+        s.fuel_remaining = amount
         all_ships.append(s)
         self.ships.append(s)
 
