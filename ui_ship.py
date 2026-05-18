@@ -35,6 +35,8 @@ class ShipUI:
         _can_navigate = s.fire_range > 0 or "navigate" in SHIP_DEFS.get(s.type, {}).get("missions", [])
         if _can_navigate:
             h += 26  # navigate row
+        if s.can_do("recycle"):
+            h += 26  # recycle row
 
         if s.capacity > 0:
             h += 8   # separator before cargo
@@ -76,6 +78,8 @@ class ShipUI:
                     self.ship.repeat = not self.ship.repeat
                 elif btn.tooltip == "patrol_request" and self.ship:
                     return "patrol_requested"
+                elif btn.tooltip == "collect_request" and self.ship:
+                    return "collect_requested"
                 return True
         if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
             if not self.panel_rect.collidepoint(pos):
@@ -83,7 +87,7 @@ class ShipUI:
                 return False
         return self.panel_rect.collidepoint(pos)
 
-    def draw(self, surface):
+    def draw(self, surface, dispatch_modes=None):
         if not self.visible or not self.ship:
             return
         s = self.ship
@@ -286,6 +290,14 @@ class ShipUI:
                 cancel_btn.draw(surface)
                 self._buttons.append(cancel_btn)
             y += 26  # always advance
+
+        if s.can_do("recycle"):
+            recycle_btn = Button((pr.x + 10, y + 2, 140, 20), "Recycler",
+                                 tooltip="collect_request", active=((dispatch_modes or {}).get(s) == "recycle"))
+            recycle_btn.handle_mouse(pygame.mouse.get_pos())
+            recycle_btn.draw(surface)
+            self._buttons.append(recycle_btn)
+            y += 26
 
         # ── Cargo ────────────────────────────────────────────────
         if s.capacity > 0:

@@ -148,6 +148,9 @@ class Ship:
         if self.capacity > 0:
             self.capacity = int(defn["capacity"] * mult)
 
+    def can_do(self, mission):
+        return mission in SHIP_DEFS.get(self.type, {}).get("missions", [])
+
     def fuel_cost_patrol(self, wx, wy):
         return math.hypot(self.x - wx, self.y - wy) * self.fuel_rate
 
@@ -241,11 +244,13 @@ class Ship:
         return True
 
     def send_collect(self, debris):
-        if self.state != MISSION_IDLE: return False
+        if self.state not in (MISSION_IDLE, MISSION_PATROL): return False
         if self.capacity <= 0: return False
+        if self.state == MISSION_PATROL:
+            self._patrol_dest = None
+            self._dock_planet = None
         dist = math.hypot(self.x - debris.x, self.y - debris.y)
-        multiplier = 2.0 if SHIP_DEFS.get(self.type, {}).get("can_transport", False) else 1.0
-        if self.fuel_remaining < dist * self.fuel_rate * multiplier: return False
+        if self.fuel_remaining < dist * self.fuel_rate: return False
         self._collect_debris = debris
         self.target_planet   = None
         self.state           = MISSION_TRAVEL
@@ -268,7 +273,11 @@ class Ship:
 
     def cancel_mission(self):
         if self.state in (MISSION_TRAVEL, MISSION_MINE, MISSION_DISCOVER):
-            self.state = MISSION_RETURN
+            if getattr(self, '_mission_type', None) == 'collect':
+                self.state = MISSION_IDLE
+                self._collect_debris = None
+            else:
+                self.state = MISSION_RETURN
             return True
         if self.state in (MISSION_PATROL, MISSION_COMBAT):
             self._patrol_dest = None
@@ -332,7 +341,7 @@ class Ship:
                             space -= take
                     self._collect_debris._collected = True
                     self._collect_debris = None
-                    if SHIP_DEFS.get(self.type, {}).get("can_transport", False):
+                    if self.can_do("transport"):
                         self.state = MISSION_RETURN
                     else:
                         self.state = MISSION_IDLE
@@ -431,6 +440,13 @@ class Ship:
                     if self not in self.home.ships:
                         self.home.ships.append(self)
                     self._refuel_at_dock(self.home)
+                    for res, amt in list(self.cargo.items()):
+                        if amt > 0:
+                            cap = self.home.storage_cap_for(res)
+                            space = max(0.0, cap - self.home.resources.get(res, 0))
+                            delivered = min(amt, space)
+                            self.home.resources[res] = self.home.resources.get(res, 0) + delivered
+                            self.cargo[res] -= delivered
                 self._patrol_dest = None
                 self._dock_planet = None
                 self.state = MISSION_IDLE

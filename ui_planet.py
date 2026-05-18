@@ -447,7 +447,7 @@ class PlanetUI:
             self.show_message(f"Mission {mtype} → {target_planet.name}" if ok else "Mission échouée")
 
     # ── draw ─────────────────────────────────────────────────────
-    def draw(self, surface, planets, highways=None, patrol_mode_ship=None):
+    def draw(self, surface, planets, highways=None, dispatch_modes=None):
         if not self.visible or not self.planet:
             return
         p = self.planet
@@ -551,7 +551,13 @@ class PlanetUI:
             elif self._tab == "ships":
                 self._draw_ships_tab(surface, pr, content_y, p)
             elif self._tab == "fleet":
-                self._draw_fleet(surface, pr, content_y, p, patrol_mode_ship)
+                pending_modes = dict(dispatch_modes or {})
+                if self._mission_mode:
+                    _mt, _ms = self._mission_mode
+                    pending_modes[_ms] = _mt
+                if self._transport_cfg:
+                    pending_modes[self._transport_cfg["ship"]] = "transport"
+                self._draw_fleet(surface, pr, content_y, p, pending_modes)
 
             surface.set_clip(None)
 
@@ -820,11 +826,56 @@ class PlanetUI:
             surface.blit(f.render(txt, True, color), (tx + pad, ty + pad // 2 + i * line_h))
 
     def draw_debris_hover(self, surface, debris, camera, ship):
+        _can_recycle   = ship.can_do("recycle")
+        _can_transport = ship.can_do("transport")
+        _can_collect   = _can_recycle or _can_transport
+
+        f_title = _font(12)
+        f       = _font(11)
+        line_h  = 15
+        title_h = 18
+        pad     = 8
+
+        def _render_panel(title_txt, title_color, border_color, lines):
+            w = max(
+                f_title.size(title_txt)[0],
+                max((f.size(txt)[0] for txt, _ in lines), default=0)
+            ) + pad * 2
+            h = title_h + len(lines) * line_h + pad
+            sx, sy = camera.world_to_screen(debris.x, debris.y)
+            tx = int(sx) + 18
+            ty = int(sy) - h // 2
+            tx = min(tx, int(SCREEN_W) - w - 4)
+            ty = max(ty, 4)
+            ty = min(ty, int(SCREEN_H) - h - 4)
+            panel = pygame.Surface((w, h), pygame.SRCALPHA)
+            panel.fill((8, 12, 28, 210))
+            pygame.draw.rect(panel, border_color, (0, 0, w, h), 1, border_radius=4)
+            surface.blit(panel, (tx, ty))
+            surface.blit(f_title.render(title_txt, True, title_color), (tx + pad, ty + pad // 2))
+            pygame.draw.line(surface, (60, 80, 110),
+                             (tx + pad, ty + title_h), (tx + w - pad, ty + title_h))
+            for i, (txt, color) in enumerate(lines):
+                surface.blit(f.render(txt, True, color),
+                             (tx + pad, ty + title_h + 2 + i * line_h))
+
+        # Simplified hint for ships that cannot collect debris
+        if not _can_collect:
+            lines = []
+            if debris.resources:
+                for res, v in debris.resources.items():
+                    if v > 0:
+                        lines.append((f"  {res[:3].upper()}: {int(v)}", RESOURCE_COLORS.get(res, ORANGE)))
+            if not lines:
+                lines.append(("(vide)", GRAY))
+            _render_panel("Débris", GRAY, GRAY, lines)
+            return
+
+        # Full hint for collect-capable ships (Recycler, Freighter)
         dist = math.hypot(ship.x - debris.x, ship.y - debris.y)
         travel_to = dist / max(ship.speed, 1)
         dist_back = math.hypot(debris.x - ship.home.x, debris.y - ship.home.y)
         travel_back = dist_back / max(ship.speed, 1)
-        _can_transport = SHIP_DEFS.get(ship.type, {}).get("can_transport", False)
         fuel = (dist + dist_back) * ship.fuel_rate if _can_transport else dist * ship.fuel_rate
         fuel_ok = ship.fuel_remaining >= fuel
         cargo_total = sum(debris.resources.values())
@@ -841,40 +892,14 @@ class PlanetUI:
             if debris.resources:
                 for res, v in debris.resources.items():
                     if v > 0:
-                        color = RESOURCE_COLORS.get(res, ORANGE)
-                        lines.append((f"  {res[:3].upper()}: {int(v)}", color))
+                        lines.append((f"  {res[:3].upper()}: {int(v)}", RESOURCE_COLORS.get(res, ORANGE)))
             lines.append((f"Cargo   : {int(cargo_total)} requis / {int(cap_left)} dispo",
                           UI_TEXT if cargo_ok else ORANGE))
         lines.append((f"Carburant : {fuel:.0f} {ship.fuel_type}", GREEN if fuel_ok else RED))
 
-        title_txt = "Recycler" if cargo_ok else "Cargo insuffisant"
-        f_title = _font(12)
-        f = _font(11)
-        line_h = 15
-        title_h = 18
-        pad = 8
-        w = max(
-            f_title.size(title_txt)[0],
-            max((f.size(txt)[0] for txt, _ in lines), default=0)
-        ) + pad * 2
-        h = title_h + len(lines) * line_h + pad
-        sx, sy = camera.world_to_screen(debris.x, debris.y)
-        tx = int(sx) + 18
-        ty = int(sy) - h // 2
-        tx = min(tx, int(SCREEN_W) - w - 4)
-        ty = max(ty, 4)
-        ty = min(ty, int(SCREEN_H) - h - 4)
-        panel = pygame.Surface((w, h), pygame.SRCALPHA)
-        panel.fill((8, 12, 28, 210))
-        pygame.draw.rect(panel, GOLD, (0, 0, w, h), 1, border_radius=4)
-        surface.blit(panel, (tx, ty))
+        title_txt   = "Recycler" if cargo_ok else "Cargo insuffisant"
         title_color = GOLD if cargo_ok else RED
-        surface.blit(f_title.render(title_txt, True, title_color), (tx + pad, ty + pad // 2))
-        pygame.draw.line(surface, (60, 80, 110),
-                         (tx + pad, ty + title_h), (tx + w - pad, ty + title_h))
-        for i, (txt, color) in enumerate(lines):
-            surface.blit(f.render(txt, True, color),
-                         (tx + pad, ty + title_h + 2 + i * line_h))
+        _render_panel(title_txt, title_color, GOLD, lines)
 
     def _draw_buildings(self, surface, pr, y, p):
         f = _font(12)
@@ -1098,7 +1123,8 @@ class PlanetUI:
             return 130
         return 70
 
-    def _draw_fleet(self, surface, pr, y, p, patrol_mode_ship=None):
+    def _draw_fleet(self, surface, pr, y, p, pending_modes=None):
+        pending_modes = pending_modes or {}
         f = _font(12)
         sf = _font(10)
         if not p.ships:
@@ -1118,8 +1144,8 @@ class PlanetUI:
         ry                = y - scroll_offset + 4
 
         _MISSION_LABELS = {"explore": "Explorer", "mine": "Extraire",
-                           "colonize": "Coloniser", "patrol": "Naviguer",
-                           "highway": "Route"}
+                           "colonize": "Coloniser", "patrol": "Naviguer", "navigate": "Naviguer",
+                           "highway": "Route", "recycle": "Recycler", "transport": "Transport"}
         mouse_pos = pygame.mouse.get_pos()
 
         for ship in p.ships:
@@ -1179,46 +1205,54 @@ class PlanetUI:
 
             if ship.state == "idle":
                 missions = SHIP_DEFS[ship.type]["missions"]
-                # "explore" is handled automatically via "navigate" hover — no separate button
-                display_missions = [m for m in missions if m != "explore"]
+                # "explore" auto via navigate hover; "recycle"/"transport" have dedicated rows below
+                display_missions = [m for m in missions if m not in ("explore", "recycle", "transport")]
                 n = len(display_missions)
                 bx = right - n * 76 - (n - 1) * 6 - 4
                 for mi, mtype in enumerate(display_missions):
-                    is_active = (patrol_mode_ship is ship) if mtype in ("patrol", "navigate") else (self._mission_mode == (mtype, ship))
+                    is_active = pending_modes.get(ship) == mtype
                     enabled = not (mtype in ("patrol", "navigate")
                                    and ship.fuel_remaining < 1.0)
-                    btn = Button((bx + mi * 82, ry + 10, 76, 20),
+                    # navigate/patrol always at the left slot of the two-button layout
+                    # so Annuler can appear to its right without shifting it
+                    if mtype in ("patrol", "navigate"):
+                        btn_x = right - 164
+                    else:
+                        btn_x = bx + mi * 82
+                    btn = Button((btn_x, ry + 10, 76, 20),
                                  _MISSION_LABELS.get(mtype, mtype.capitalize()),
                                  tooltip=f"{mtype}:{ship.id}", active=is_active, enabled=enabled)
                     btn.handle_mouse(mouse_pos); btn.draw(surface)
                     self._buttons.append(btn)
-                _sdef = SHIP_DEFS[ship.type]
-                _can_recycle   = _sdef.get("can_recycle", False)
-                _can_transport = _sdef.get("can_transport", False)
-                if _can_recycle:
+                if ship.can_do("recycle"):
                     cbtn = Button((right - 80, ry + 32, 76, 16),
-                                  "Recycler", tooltip=f"collect:{ship.id}")
+                                  "Recycler", tooltip=f"collect:{ship.id}",
+                                  active=(pending_modes.get(ship) == "recycle"))
                     cbtn.handle_mouse(mouse_pos); cbtn.draw(surface)
                     self._buttons.append(cbtn)
-                if _can_transport:
-                    is_cfg_open = (self._transport_cfg is not None
-                                   and self._transport_cfg["ship"].id == ship.id)
+                if ship.can_do("transport"):
                     tbtn = Button((right - 160, ry + 32, 76, 16),
                                   "Transport",
                                   tooltip=f"transport_open:{ship.id}",
-                                  active=is_cfg_open)
+                                  active=(pending_modes.get(ship) == "transport"))
                     tbtn.handle_mouse(mouse_pos); tbtn.draw(surface)
                     self._buttons.append(tbtn)
             elif ship.state in ("patrol", "combat"):
                 patrol_btn = Button((right - 164, ry + 10, 76, 20),
                                     "Naviguer", tooltip=f"patrol:{ship.id}",
-                                    active=patrol_mode_ship is ship)
+                                    active=pending_modes.get(ship) in ("navigate", "patrol"))
                 patrol_btn.handle_mouse(mouse_pos); patrol_btn.draw(surface)
                 self._buttons.append(patrol_btn)
                 btn = Button((right - 84, ry + 10, 80, 20),
                              "Annuler", tooltip=f"cancel_mission:{ship.id}")
                 btn.handle_mouse(mouse_pos); btn.draw(surface)
                 self._buttons.append(btn)
+                if ship.can_do("recycle"):
+                    cbtn = Button((right - 80, ry + 32, 76, 16),
+                                  "Recycler", tooltip=f"collect:{ship.id}",
+                                  active=(pending_modes.get(ship) == "recycle"))
+                    cbtn.handle_mouse(mouse_pos); cbtn.draw(surface)
+                    self._buttons.append(cbtn)
             elif ship.state in ("travel", "discovering", "mining"):
                 _one_way = getattr(ship, "_mission_type", None) in MISSION_ONE_WAY
                 if _one_way:
@@ -1249,8 +1283,8 @@ class PlanetUI:
             ratio = max(0.0, min(1.0, ship.fuel_remaining / ship.fuel_capacity))
             fc = RED if ratio < 0.1 else (ORANGE if ratio < 0.25 else CYAN)
             tank_lbl = f"Réservoir : {ship.fuel_remaining:.0f} / {ship.fuel_capacity} {ship.fuel_type}"
-            surface.blit(_font(9).render(tank_lbl, True, fc), (pr.x + 12, ry + 36))
-            bar_x, bar_y = pr.x + 12, ry + 47
+            surface.blit(_font(9).render(tank_lbl, True, fc), (pr.x + 12, ry + 48))
+            bar_x, bar_y = pr.x + 12, ry + 59
             bar_w, bar_h = content_w - 6, 4
             pygame.draw.rect(surface, (22, 28, 48), (bar_x, bar_y, bar_w, bar_h), border_radius=2)
             fw = int(bar_w * ratio)

@@ -50,7 +50,7 @@ class Game:
         self._hovered_ship = None
         self._time_scale = 1.0
         self._running = True
-        self._patrol_mode_ship = None
+        self._pending_dispatch = None   # (ship, mtype) | None — ship waiting for a map/target click
 
         # Center camera on home planet at initial zoom
         self.camera.zoom = ZOOM_INIT
@@ -58,7 +58,6 @@ class Game:
         self.camera.x = home.x - SCREEN_W / (2 * self.camera.zoom)
         self.camera.y = home.y - SCREEN_H / (2 * self.camera.zoom)
 
-        # Enemy ships
         self.enemy_ships = []
         self._spawn_initial_enemies()
         self._visible_enemies = set()
@@ -66,7 +65,6 @@ class Game:
         self._hud_msg_timer = 0.0
         self.debris_list: list = []
         self._visible_debris: set = set()
-        self._collect_mode_ship = None
         self._hovered_debris = None
         self._spawn_initial_debris()
 
@@ -226,10 +224,8 @@ class Game:
 
             # ESC: cancel active modes in priority order
             if event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
-                if self._patrol_mode_ship:
-                    self._patrol_mode_ship = None
-                elif self._collect_mode_ship:
-                    self._collect_mode_ship = None
+                if self._pending_dispatch:
+                    self._pending_dispatch = None
                 elif self.ui._mission_mode:
                     self.ui._mission_mode = None
                     self.ui.show_message("Mission annulée")
@@ -270,22 +266,22 @@ class Game:
             if self.minimap.handle_event(event, self.camera):
                 continue
 
-            # Patrol mode: click map to send combat ship to a destination
+            # Navigate/patrol mode: click map to send ship to a destination
             # (checked before ShipUI so an outside click doesn't auto-close the panel)
-            if self._patrol_mode_ship:
+            if self._pending_dispatch and self._pending_dispatch[1] in ("navigate", "patrol"):
                 if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                     on_ui = ((self.ui.visible and self.ui.panel_rect.collidepoint((mx, my))) or
                              (self.ship_ui.visible and self.ship_ui.panel_rect.collidepoint((mx, my))) or
                              self.colony_bar.contains_point((mx, my), self.planets))
                     if not on_ui:
                         wx, wy = self.camera.screen_to_world(mx, my)
-                        ship = self._patrol_mode_ship
-                        self._patrol_mode_ship = None
+                        ship, mtype = self._pending_dispatch
+                        self._pending_dispatch = None
                         # Auto-dispatch: explore if hovering unexplored planet
                         if (self._hovered_planet and not self._hovered_planet.explored
                                 and "explore" in SHIP_DEFS.get(ship.type, {}).get("missions", [])):
                             ok = ship.send_explore(self._hovered_planet)
-                        elif self._hovered_debris and SHIP_DEFS.get(ship.type, {}).get("can_recycle", False):
+                        elif self._hovered_debris and ship.can_do("recycle"):
                             ok = ship.send_collect(self._hovered_debris)
                         else:
                             dock_planet = next(
@@ -298,7 +294,7 @@ class Game:
                             ok = ship.send_patrol(wx, wy, dock_planet=dock_planet,
                                                   planets=self.planets)
                         if not ok:
-                            self._patrol_mode_ship = ship
+                            self._pending_dispatch = (ship, mtype)
                             self._hud_msg = f"Carburant insuffisant ({ship.fuel_type})"
                             self._hud_msg_timer = 3.0
                         continue
@@ -306,8 +302,8 @@ class Game:
                     self.camera.handle_event(event)
                 continue
 
-            # Collect mode: next click on visible debris dispatches ship
-            if self._collect_mode_ship:
+            # Collect/recycle mode: next click on visible debris dispatches ship
+            if self._pending_dispatch and self._pending_dispatch[1] == "recycle":
                 if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                     on_ui = (
                         (self.ui.visible and self.ui.panel_rect.collidepoint((mx, my)))
@@ -322,8 +318,8 @@ class Game:
                             None,
                         )
                         if clicked_debris:
-                            ship = self._collect_mode_ship
-                            self._collect_mode_ship = None
+                            ship, _ = self._pending_dispatch
+                            self._pending_dispatch = None
                             ok = ship.send_collect(clicked_debris)
                             if not ok:
                                 self._hud_msg = "Carburant insuffisant pour collecter"
@@ -336,7 +332,12 @@ class Game:
             # Ship UI events (intercepts clicks on its panel)
             ship_ev = self.ship_ui.handle_event(event)
             if ship_ev == "patrol_requested":
-                self._patrol_mode_ship = self.ship_ui.ship
+                _s = self.ship_ui.ship
+                _ms = SHIP_DEFS.get(_s.type, {}).get("missions", [])
+                self._pending_dispatch = (_s, "navigate" if "navigate" in _ms else "patrol")
+                continue
+            if ship_ev == "collect_requested":
+                self._pending_dispatch = (self.ship_ui.ship, "recycle")
                 continue
             if ship_ev:
                 continue
@@ -346,10 +347,12 @@ class Game:
                 # Promote patrol request immediately so the patrol block
                 # can protect subsequent events within the same frame.
                 if self.ui._patrol_request:
-                    self._patrol_mode_ship = self.ui._patrol_request
+                    _s = self.ui._patrol_request
+                    _ms = SHIP_DEFS.get(_s.type, {}).get("missions", [])
+                    self._pending_dispatch = (_s, "navigate" if "navigate" in _ms else "patrol")
                     self.ui._patrol_request = None
                 if self.ui._collect_request:
-                    self._collect_mode_ship = self.ui._collect_request
+                    self._pending_dispatch = (self.ui._collect_request, "recycle")
                     self.ui._collect_request = None
                 continue
 
@@ -363,47 +366,6 @@ class Game:
                 else:
                     self.camera.handle_event(event)
                 continue
-
-            # Right-click shortcut: navigate or explore with selected ship
-            if (event.type == pygame.MOUSEBUTTONDOWN and event.button == 3
-                    and self.ship_ui.visible and self.ship_ui.ship):
-                _s = self.ship_ui.ship
-                _on_ui = (
-                    (self.ui.visible and self.ui.panel_rect.collidepoint((mx, my))) or
-                    self.ship_ui.panel_rect.collidepoint((mx, my)) or
-                    self.colony_bar.contains_point((mx, my), self.planets)
-                )
-                if not _on_ui:
-                    _ms = SHIP_DEFS.get(_s.type, {}).get("missions", [])
-                    wx, wy = self.camera.screen_to_world(mx, my)
-                    ok = True
-                    if "navigate" in _ms or "patrol" in _ms:
-                        # Auto-detect explore/collect, otherwise navigate
-                        if (self._hovered_planet and not self._hovered_planet.explored
-                                and "explore" in _ms):
-                            ok = _s.send_explore(self._hovered_planet)
-                        elif self._hovered_debris and SHIP_DEFS.get(_s.type, {}).get("can_recycle", False):
-                            ok = _s.send_collect(self._hovered_debris)
-                        else:
-                            dock_planet = next(
-                                (p for p in self.planets
-                                 if p.colonized
-                                 and (wx - p.x) ** 2 + (wy - p.y) ** 2 < (p.size + 10) ** 2),
-                                None)
-                            if dock_planet:
-                                wx, wy = dock_planet.x, dock_planet.y
-                            ok = _s.send_patrol(wx, wy, dock_planet=dock_planet,
-                                                planets=self.planets)
-                    elif "explore" in _ms and self._hovered_planet and not self._hovered_planet.explored:
-                        ok = _s.send_explore(self._hovered_planet)
-                    else:
-                        ok = True  # nothing to do, let camera handle drag
-                        _on_ui = True  # fall through to camera
-                    if not _on_ui:
-                        if not ok:
-                            self._hud_msg = f"Carburant insuffisant ({_s.fuel_type})"
-                            self._hud_msg_timer = 3.0
-                        continue  # swallow the right-click, no camera drag
 
             # Camera (zoom, pan)
             self.camera.handle_event(event)
@@ -534,8 +496,13 @@ class Game:
         if _range_ship:
             self._draw_patrol_range_circle(_range_ship)
 
-        self.ui.draw(self.screen, self.planets, self.highways,
-                     patrol_mode_ship=self._patrol_mode_ship)
+        dispatch_modes = {}
+        if self._patrol_mode_ship:
+            ms = SHIP_DEFS.get(self._patrol_mode_ship.type, {}).get("missions", [])
+            dispatch_modes[self._patrol_mode_ship] = "navigate" if "navigate" in ms else "patrol"
+        if self._collect_mode_ship:
+            dispatch_modes[self._collect_mode_ship] = "recycle"
+        self.ui.draw(self.screen, self.planets, self.highways, dispatch_modes=dispatch_modes)
         if self._hovered_planet:
             _hint_ship = self._patrol_mode_ship
             if not _hint_ship and self.ship_ui.visible and self.ship_ui.ship:
@@ -547,8 +514,9 @@ class Game:
                                        patrol_ship=_hint_ship)
         elif self._hovered_debris and not self._hovered_planet:
             _debris_ship = (self._patrol_mode_ship
+                            or self._collect_mode_ship
                             or (self.ship_ui.ship if self.ship_ui.visible else None))
-            if _debris_ship and SHIP_DEFS.get(_debris_ship.type, {}).get("can_recycle", False):
+            if _debris_ship:
                 self.ui.draw_debris_hover(self.screen, self._hovered_debris, self.camera,
                                           _debris_ship)
         elif self._patrol_mode_ship:
@@ -556,7 +524,7 @@ class Game:
             wx, wy = self.camera.screen_to_world(mx, my)
             self.ui.draw_patrol_hover(self.screen, wx, wy, self.camera,
                                       self._patrol_mode_ship, planets=self.planets)
-        self.ship_ui.draw(self.screen)
+        self.ship_ui.draw(self.screen, dispatch_modes=dispatch_modes)
         self.colony_bar.draw(self.screen, self.planets,
                              selected_planet=self.ui.planet if self.ui.visible else None,
                              mission_mode=bool(self.ui._mission_mode))
