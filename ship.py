@@ -640,6 +640,16 @@ class Ship:
                 pygame.draw.rect(surface, fill_color, (bar_x, bar_y, fw, bar_h))
             pygame.draw.rect(surface, (80, 80, 80), (bar_x, bar_y, bar_w, bar_h), 1)
 
+        # Type label for player ships (disappears when zoomed out)
+        if self.faction == "player" and camera.zoom >= 0.2:
+            try:
+                _lf = pygame.font.SysFont("consolas", 9)
+            except Exception:
+                _lf = pygame.font.Font(None, 14)
+            _lt = _lf.render(self.type, True, WHITE)
+            _ly = sy + draw_size // 2 + (13 if self.max_hp > 0 else 4)
+            surface.blit(_lt, (sx - _lt.get_width() // 2, _ly))
+
         # Laser flash on shoot
         if self._shoot_flash:
             tx, ty, t = self._shoot_flash
