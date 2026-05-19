@@ -504,6 +504,9 @@ class Game:
         if self._pending_dispatch:
             _ds, _dm = self._pending_dispatch
             dispatch_modes[_ds] = _dm
+        if self.ui._mission_mode:
+            _mm_type, _mm_ship = self.ui._mission_mode
+            dispatch_modes[_mm_ship] = _mm_type
         self.ui.draw(self.screen, self.planets, self.highways, dispatch_modes=dispatch_modes)
         if self._hovered_planet:
             _is_nav = self._pending_dispatch and self._pending_dispatch[1] == "navigate"
