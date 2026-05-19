@@ -42,11 +42,10 @@ _ANIM_FRAME_DUR = 1 / 8   # 8 fps animation
 
 MISSION_IDLE     = "idle"
 MISSION_TRAVEL   = "travel"
-MISSION_EXPLORE  = "exploring"
 MISSION_DISCOVER = "discovering"
 MISSION_MINE     = "mining"
 MISSION_RETURN   = "returning"
-MISSION_PATROL   = "patrol"
+MISSION_NAVIGATE = "navigate"
 MISSION_COMBAT   = "combat"
 
 
@@ -104,10 +103,10 @@ class Ship:
         self._target_enemy = None
         self._shoot_flash = None      # (world_tx, world_ty, timer)
 
-        # Patrol attributes
-        self._patrol_dest = None      # (wx, wy) destination in world coords
+        # Navigate attributes
+        self._navigate_dest = None    # (wx, wy) destination in world coords
         self._dock_planet = None      # colonized planet to dock at on arrival
-        self._pre_combat_dest = None  # patrol dest saved before entering combat
+        self._pre_combat_dest = None  # navigate dest saved before entering combat
 
         # Perception attributes
         self.detection_range = defn.get("detection_range", DETECTION_RANGE)
@@ -151,7 +150,7 @@ class Ship:
     def can_do(self, mission):
         return mission in SHIP_DEFS.get(self.type, {}).get("missions", [])
 
-    def fuel_cost_patrol(self, wx, wy):
+    def fuel_cost_navigate(self, wx, wy):
         return math.hypot(self.x - wx, self.y - wy) * self.fuel_rate
 
     def _fuel_to_nearest_colony(self, wx, wy, planets):
@@ -164,14 +163,14 @@ class Ship:
                     best = cost
         return best if best < float("inf") else 0.0
 
-    def can_patrol_to(self, wx, wy, planets=None):
+    def can_navigate_to(self, wx, wy, planets=None):
         """True if this ship can reach (wx,wy) and still return to a colonized planet."""
-        fuel_leg = self.fuel_cost_patrol(wx, wy)
+        fuel_leg = self.fuel_cost_navigate(wx, wy)
         fuel_return = self._fuel_to_nearest_colony(wx, wy, planets or [])
         return self.fuel_remaining >= fuel_leg + fuel_return
 
-    def has_fuel_for_patrol(self, wx, wy):
-        return self.fuel_remaining >= self.fuel_cost_patrol(wx, wy)
+    def has_fuel_for_navigate(self, wx, wy):
+        return self.fuel_remaining >= self.fuel_cost_navigate(wx, wy)
 
     def _refuel_at_dock(self, planet):
         needed = self.fuel_capacity - self.fuel_remaining
@@ -183,7 +182,10 @@ class Ship:
 
     # ── missions ─────────────────────────────────────────────────
     def send_explore(self, target):
-        if self.state != MISSION_IDLE: return False
+        if self.state not in (MISSION_IDLE, MISSION_NAVIGATE): return False
+        if self.state == MISSION_NAVIGATE:
+            self._navigate_dest = None
+            self._dock_planet = None
         if self.fuel_remaining < self.fuel_cost("explore", target): return False
         self.target_planet = target
         self.state = MISSION_TRAVEL
@@ -191,7 +193,10 @@ class Ship:
         return True
 
     def send_mine(self, target):
-        if self.state != MISSION_IDLE: return False
+        if self.state not in (MISSION_IDLE, MISSION_NAVIGATE): return False
+        if self.state == MISSION_NAVIGATE:
+            self._navigate_dest = None
+            self._dock_planet = None
         if "mine" not in SHIP_DEFS.get(self.type, {}).get("missions", []): return False
         if self.fuel_remaining < self.fuel_cost("mine", target): return False
         self.target_planet = target
@@ -200,7 +205,10 @@ class Ship:
         return True
 
     def send_colonize(self, target):
-        if self.state != MISSION_IDLE: return False
+        if self.state not in (MISSION_IDLE, MISSION_NAVIGATE): return False
+        if self.state == MISSION_NAVIGATE:
+            self._navigate_dest = None
+            self._dock_planet = None
         if self.type != "Colonizer": return False
         if self.fuel_remaining < self.fuel_cost("colonize", target): return False
         self.target_planet = target
@@ -209,7 +217,10 @@ class Ship:
         return True
 
     def send_highway(self, target):
-        if self.state != MISSION_IDLE: return False
+        if self.state not in (MISSION_IDLE, MISSION_NAVIGATE): return False
+        if self.state == MISSION_NAVIGATE:
+            self._navigate_dest = None
+            self._dock_planet = None
         if self.type != "Constructor": return False
         if self.fuel_remaining < self.fuel_cost("highway", target): return False
         self.target_planet = target
@@ -229,7 +240,10 @@ class Ship:
                 planet.resources[res] = avail - amount
 
     def send_transport(self, target, outbound_res, inbound_res=None):
-        if self.state != MISSION_IDLE: return False
+        if self.state not in (MISSION_IDLE, MISSION_NAVIGATE): return False
+        if self.state == MISSION_NAVIGATE:
+            self._navigate_dest = None
+            self._dock_planet = None
         if self.capacity <= 0: return False
         if not target.colonized or target is self.home: return False
         if self.fuel_remaining < self.fuel_cost("transport", target): return False
@@ -244,10 +258,10 @@ class Ship:
         return True
 
     def send_collect(self, debris):
-        if self.state not in (MISSION_IDLE, MISSION_PATROL): return False
+        if self.state not in (MISSION_IDLE, MISSION_NAVIGATE): return False
         if self.capacity <= 0: return False
-        if self.state == MISSION_PATROL:
-            self._patrol_dest = None
+        if self.state == MISSION_NAVIGATE:
+            self._navigate_dest = None
             self._dock_planet = None
         dist = math.hypot(self.x - debris.x, self.y - debris.y)
         if self.fuel_remaining < dist * self.fuel_rate: return False
@@ -257,18 +271,18 @@ class Ship:
         self._mission_type   = "collect"
         return True
 
-    def send_patrol(self, wx, wy, dock_planet=None, planets=None):
-        if self.state not in (MISSION_IDLE, MISSION_PATROL, MISSION_COMBAT): return False
+    def send_navigate(self, wx, wy, dock_planet=None, planets=None):
+        if self.state not in (MISSION_IDLE, MISSION_NAVIGATE, MISSION_COMBAT): return False
         if not self.pnr_advisory:
-            fuel_leg = self.fuel_cost_patrol(wx, wy)
+            fuel_leg = self.fuel_cost_navigate(wx, wy)
             fuel_return = self._fuel_to_nearest_colony(wx, wy, planets) if planets else 0.0
             if self.fuel_remaining < fuel_leg + fuel_return:
                 return False
-        self._patrol_dest = (wx, wy)
+        self._navigate_dest = (wx, wy)
         self._dock_planet = dock_planet
         self._pre_combat_dest = None
         self._target_enemy = None
-        self.state = MISSION_PATROL
+        self.state = MISSION_NAVIGATE
         return True
 
     def cancel_mission(self):
@@ -279,8 +293,8 @@ class Ship:
             else:
                 self.state = MISSION_RETURN
             return True
-        if self.state in (MISSION_PATROL, MISSION_COMBAT):
-            self._patrol_dest = None
+        if self.state in (MISSION_NAVIGATE, MISSION_COMBAT):
+            self._navigate_dest = None
             self._pre_combat_dest = None
             self._target_enemy = None
             self.state = MISSION_IDLE
@@ -417,17 +431,17 @@ class Ship:
                         self._transport_inbound,
                     )
 
-        elif self.state == MISSION_PATROL:
+        elif self.state == MISSION_NAVIGATE:
             # Enter combat if enemy spotted
             if self.fire_range > 0 and all_ships:
                 enemy = self._find_enemy(all_ships)
                 if enemy:
-                    self._pre_combat_dest = self._patrol_dest
+                    self._pre_combat_dest = self._navigate_dest
                     self._target_enemy = enemy
                     self.state = MISSION_COMBAT
                     return
 
-            wx, wy = self._patrol_dest
+            wx, wy = self._navigate_dest
             self._move_toward(wx, wy, dt, self.speed)
             dist = math.hypot(self.x - wx, self.y - wy)
             if dist < 5:
@@ -447,7 +461,7 @@ class Ship:
                             delivered = min(amt, space)
                             self.home.resources[res] = self.home.resources.get(res, 0) + delivered
                             self.cargo[res] -= delivered
-                self._patrol_dest = None
+                self._navigate_dest = None
                 self._dock_planet = None
                 self.state = MISSION_IDLE
 
@@ -457,9 +471,9 @@ class Ship:
             if not enemy:
                 self._target_enemy = None
                 if self._pre_combat_dest:
-                    self._patrol_dest = self._pre_combat_dest
+                    self._navigate_dest = self._pre_combat_dest
                     self._pre_combat_dest = None
-                    self.state = MISSION_PATROL
+                    self.state = MISSION_NAVIGATE
                 else:
                     self.state = MISSION_IDLE
                 return
@@ -557,7 +571,7 @@ class Ship:
             dot_color = GOLD
         elif self.state == MISSION_COMBAT:
             dot_color = RED
-        elif self.state == MISSION_PATROL:
+        elif self.state == MISSION_NAVIGATE:
             dot_color = ORANGE
         else:
             dot_color = {
@@ -566,8 +580,7 @@ class Ship:
                 MISSION_DISCOVER: GOLD,
                 MISSION_MINE:     ORANGE,
                 MISSION_RETURN:   GREEN,
-                MISSION_EXPLORE:  CYAN,
-            }.get(self.state, WHITE)
+            }.get(self.state, GRAY)
         pygame.draw.circle(surface, dot_color, (sx + draw_size // 2, sy - draw_size // 2), max(3, int(4 * camera.zoom)))
 
         # Non-player faction ring + permanent name label
@@ -627,8 +640,8 @@ class Ship:
         elif self.state == MISSION_RETURN:
             tx, ty = camera.world_to_screen(self.home.x, self.home.y)
             pygame.draw.line(surface, (*CYAN, 60), (sx, sy), (tx, ty), 1)
-        elif self.state == MISSION_PATROL and self._patrol_dest:
-            tx, ty = camera.world_to_screen(self._patrol_dest[0], self._patrol_dest[1])
+        elif self.state == MISSION_NAVIGATE and self._navigate_dest:
+            tx, ty = camera.world_to_screen(self._navigate_dest[0], self._navigate_dest[1])
             line_color = (*self.faction_color, 60) if self.faction != "player" else (*ORANGE, 60)
             pygame.draw.line(surface, line_color, (sx, sy), (tx, ty), 1)
 
