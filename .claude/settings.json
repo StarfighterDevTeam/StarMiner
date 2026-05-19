@@ -11,7 +11,24 @@
       "Bash(echo \"Exit code: $?\")",
       "Bash(python -c \"from constants import *; print\\('Probe detection_range:', SHIP_DEFS.get\\('Probe', {}\\).get\\('detection_range', 'N/A'\\)\\); print\\('DETECTION_RANGE:', DETECTION_RANGE\\); print\\('NUM_PLANETS:', NUM_PLANETS\\)\")",
       "Bash(timeout 5 python main.py)",
-      "Bash(python main.py)"
+      "Bash(python main.py)",
+      "Skill(superpowers:brainstorming)",
+      "Skill(superpowers:brainstorming:*)",
+      "mcp__vexp__run_pipeline"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Grep|Glob|Regex",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/vexp-guard.sh",
+            "timeout": 3000
+          }
+        ]
+      }
     ]
   }
 }

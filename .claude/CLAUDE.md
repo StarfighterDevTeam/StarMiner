@@ -20,7 +20,7 @@ Résolution : 1280 × 800 px, 60 FPS.
 | `ship.py` | Classe `Ship` : missions, IA, fuel, combat, animations |
 | `debris.py` | Classe `Debris` : épaves collectables après destruction |
 | `ui_common.py` | Helpers partagés : `_font()`, `_fmt_time()`, `Button`, constantes boutons actifs |
-| `ui_planet.py` | `PlanetUI` : panneaux planète (onglets Ressources / Bâtiments / Vaisseaux) |
+| `ui_planet.py` | `PlanetUI` : panneaux planète (onglets Ressources / Bâtiments / Fleet) |
 | `ui_ship.py` | `ShipUI` : panneau de sélection d'un vaisseau |
 | `ui_map.py` | `ColonyBar` : barre latérale gauche listant les colonies |
 
@@ -68,13 +68,18 @@ Définis dans `SHIP_DEFS` (constants.py). Champs clés :
 |---|---|
 | `MISSION_IDLE` | En attente sur planète home |
 | `MISSION_TRAVEL` | En route vers une cible |
-| `MISSION_MINE` / `MISSION_DISCOVER` | Mining ou exploration sur place |
-| `MISSION_RETURN` | Retour à home |
-| `MISSION_PATROL` | Patrouille vers une position monde |
+| `MISSION_MINE` | Mining |
+| `MISSION_DISCOVER` | Exploration sur place d'une planète |
+| `MISSION_RETURN` | Retour à planète home |
+| `MISSION_NAVIGATE` | Navigation libre vers une position monde |
 | `MISSION_COMBAT` | Engagement ennemi |
 
-Méthodes d'envoi : `send_explore`, `send_mine`, `send_pump`, `send_colonize`,
-`send_highway`, `send_transport`, `send_collect`, `send_patrol`.
+Méthodes d'envoi : `send_explore`, `send_mine`, `send_colonize`,
+`send_highway`, `send_transport`, `send_collect`, `send_navigate`.
+
+Helpers navigation : `fuel_cost_navigate(wx, wy)`, `can_navigate_to(wx, wy)`, `has_fuel_for_navigate(wx, wy)`.
+
+Depuis `MISSION_NAVIGATE`, toutes les autres missions peuvent être lancées directement (annulation silencieuse de la navigation en cours).
 
 ### Carburant
 - Vaisseaux civils : empruntent le carburant sur `home.resources[fuel_type]`.
@@ -82,7 +87,7 @@ Méthodes d'envoi : `send_explore`, `send_mine`, `send_pump`, `send_colonize`,
 - `ship.fuel_cost(mtype, target)` : coût aller-retour pour missions cycliques, aller simple sinon.
 
 ### Mode Repeat
-`ship.repeat = True` → relance automatique de la mission à l'arrivée (mine, pump, transport).
+`ship.repeat = True` → relance automatique de la mission à l'arrivée (mine, transport).
 
 ### Transport inter-planètes
 `send_transport(target, outbound_res, inbound_res)` — charge `outbound_res` à l'aller, `inbound_res` au retour si `repeat=True`.
@@ -121,14 +126,22 @@ Spawné dans `game.debris_list` :
 
 ### `PlanetUI` (ui_planet.py)
 - Activée par clic sur une planète colonisée.
-- 3 onglets : **Ressources** (stocks + jauges), **Bâtiments** (queue + upgrade), **Vaisseaux** (construction + upgrade).
-- Onglet Vaisseaux : `row_h = 64`, bouton **Construire** (haut) + bouton **↑ Niv.X** (bas), info + missions clippées pour ne pas déborder sur les boutons.
+- 3 onglets : **Ressources** (stocks + jauges), **Bâtiments** (queue + upgrade), **Fleet** (vaisseaux en orbite).
+- Onglet Bâtiments : `row_h = 64`, bouton **Construire** (haut) + bouton **↑ Niv.X** (bas), info + missions clippées pour ne pas déborder sur les boutons.
+- Onglet **Fleet** : liste les vaisseaux du joueur sur la planète.
+  - États `MISSION_IDLE` **et** `MISSION_NAVIGATE` : affiche tous les boutons de mission de la rangée principale (`SHIP_DEFS[type]["missions"]` sauf `"recycle"` et `"transport"`). `"explore"` est inclus dans la rangée pour les vaisseaux capables.
+  - Quand l'état est `MISSION_NAVIGATE`, un bouton **Annuler** supplémentaire apparaît (tooltip `cancel_mission:{id}`).
+  - État `MISSION_COMBAT` : bouton Naviguer + Annuler.
+  - Autres états (`MISSION_TRAVEL`, `MISSION_MINE`, `MISSION_DISCOVER`, `MISSION_RETURN`) : bouton Annuler uniquement.
 - Tooltip d'upgrade au survol du bouton Niv.
 - Accès à `ship_upgrades` via `self.ship_upgrades` (référence partagée avec `game.py`).
 
 ### `ShipUI` (ui_ship.py)
 - Activée par clic sur un vaisseau joueur.
-- Affiche type, `Niv.X` (gold), état, stats, fuel, cargo, bouton Annuler mission.
+- Affiche type, `Niv.X` (gold), état, stats, fuel, cargo.
+- Bouton **Naviguer** toujours affiché (tooltip `"navigate_request"` → retourne `"navigate_requested"`).
+- Bouton **Explorer** affiché si `s.can_do("explore")` (tooltip `"explore_request"` → retourne `"explore_requested"`).
+- Bouton **Annuler** affiché quand `state in (MISSION_NAVIGATE, MISSION_COMBAT)`.
 
 ### `ColonyBar` (ui_map.py)
 - Barre latérale gauche repliable (`◀`/`▶`).

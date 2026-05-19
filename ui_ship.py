@@ -35,6 +35,8 @@ class ShipUI:
         _can_navigate = s.fire_range > 0 or "navigate" in SHIP_DEFS.get(s.type, {}).get("missions", [])
         if _can_navigate:
             h += 26  # navigate row
+        if s.can_do("explore"):
+            h += 26  # explore row
         if s.can_do("recycle"):
             h += 26  # recycle row
 
@@ -76,8 +78,10 @@ class ShipUI:
                     self.ship.cancel_mission()
                 elif btn.tooltip == "toggle_repeat" and self.ship:
                     self.ship.repeat = not self.ship.repeat
-                elif btn.tooltip == "patrol_request" and self.ship:
-                    return "patrol_requested"
+                elif btn.tooltip == "navigate_request" and self.ship:
+                    return "navigate_requested"
+                elif btn.tooltip == "explore_request" and self.ship:
+                    return "explore_requested"
                 elif btn.tooltip == "collect_request" and self.ship:
                     return "collect_requested"
                 return True
@@ -121,14 +125,14 @@ class ShipUI:
 
         # ── Mission status ────────────────────────────────────────
         from ship import (MISSION_IDLE, MISSION_TRAVEL, MISSION_DISCOVER, MISSION_MINE,
-                          MISSION_RETURN, MISSION_PATROL, MISSION_COMBAT)
+                          MISSION_RETURN, MISSION_NAVIGATE, MISSION_COMBAT)
         STATE_LABELS = {
             MISSION_IDLE:     "En attente",
             MISSION_TRAVEL:   "En transit",
             MISSION_DISCOVER: "En exploration",
             MISSION_MINE:     "En extraction",
             MISSION_RETURN:   "Retour",
-            MISSION_PATROL:   "En navigation",
+            MISSION_NAVIGATE: "En navigation",
             MISSION_COMBAT:   "Au combat",
         }
         STATE_COLORS = {
@@ -137,7 +141,7 @@ class ShipUI:
             MISSION_DISCOVER: GOLD,
             MISSION_MINE:     ORANGE,
             MISSION_RETURN:   GREEN,
-            MISSION_PATROL:   ORANGE,
+            MISSION_NAVIGATE: ORANGE,
             MISSION_COMBAT:   RED,
         }
         sf = _font(12)
@@ -164,11 +168,11 @@ class ShipUI:
             dest_name = s.target_planet.name
         elif s.state == MISSION_RETURN:
             dest_name = s.home.name
-        elif s.state == MISSION_PATROL and s._patrol_dest:
+        elif s.state == MISSION_NAVIGATE and s._navigate_dest:
             if s._dock_planet:
                 dest_name = s._dock_planet.name
             else:
-                wx, wy = s._patrol_dest
+                wx, wy = s._navigate_dest
                 dest_name = f"({int(wx)}, {int(wy)})"
         elif s.state == MISSION_COMBAT:
             dest_name = "Zone de combat"
@@ -276,10 +280,10 @@ class ShipUI:
         # Navigate row for combat ships and ships with "navigate" mission
         _can_navigate = s.fire_range > 0 or "navigate" in SHIP_DEFS.get(s.type, {}).get("missions", [])
         if _can_navigate:
-            has_nav_cancel = s.state in (MISSION_PATROL, MISSION_COMBAT)
+            has_nav_cancel = s.state in (MISSION_NAVIGATE, MISSION_COMBAT)
             bx = pr.x + 10
             bw = 140
-            nav_btn = Button((bx, y + 2, bw, 20), "Naviguer", tooltip="patrol_request")
+            nav_btn = Button((bx, y + 2, bw, 20), "Naviguer", tooltip="navigate_request")
             nav_btn.handle_mouse(pygame.mouse.get_pos())
             nav_btn.draw(surface)
             self._buttons.append(nav_btn)
@@ -289,7 +293,15 @@ class ShipUI:
                 cancel_btn.handle_mouse(pygame.mouse.get_pos())
                 cancel_btn.draw(surface)
                 self._buttons.append(cancel_btn)
-            y += 26  # always advance
+            y += 26
+
+        if s.can_do("explore"):
+            explore_btn = Button((pr.x + 10, y + 2, 140, 20), "Explorer",
+                                 tooltip="explore_request")
+            explore_btn.handle_mouse(pygame.mouse.get_pos())
+            explore_btn.draw(surface)
+            self._buttons.append(explore_btn)
+            y += 26
 
         if s.can_do("recycle"):
             recycle_btn = Button((pr.x + 10, y + 2, 140, 20), "Recycler",

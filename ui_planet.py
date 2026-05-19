@@ -66,7 +66,7 @@ class PlanetUI:
         self._buttons: list[Button] = []
         self._tab_btns: list[Button] = []
         self._mission_mode = None   # ("explore"|"mine", ship)
-        self._patrol_request = None  # combat ship requesting patrol mode
+        self._navigate_request = None  # combat ship requesting navigate mode
         self._message = ""
         self._msg_timer = 0.0
         self._build_scroll = 0
@@ -299,11 +299,11 @@ class PlanetUI:
                 ship.repeat = not ship.repeat
                 self.show_message(f"Repeat {'activé' if ship.repeat else 'désactivé'}")
 
-        elif tag.startswith("patrol:") or tag.startswith("navigate:"):
+        elif tag.startswith("navigate:"):
             sid = int(tag.split(":")[1])
             ship = next((s for s in p.ships if s.id == sid), None)
             if ship:
-                self._patrol_request = ship
+                self._navigate_request = ship
                 self.show_message("Cliquez sur la carte pour définir la destination")
 
         elif tag.startswith("transport_open:"):
@@ -616,22 +616,18 @@ class PlanetUI:
             return ship.has_fuel_for("transport", planet)
         return ship.has_fuel_for(mtype, planet)
 
-    def draw_mission_hover(self, surface, planet, camera, highways=None, patrol_ship=None):
+    def draw_mission_hover(self, surface, planet, camera, highways=None, navigate_ship=None):
         if self._mission_mode:
             mtype, ship = self._mission_mode
-        elif patrol_ship:
-            mtype, ship = "patrol", patrol_ship
-            # Auto-adapt: unexplored planet + explore-capable ship → show as explore mission
-            if (not planet.explored
-                    and "explore" in SHIP_DEFS.get(ship.type, {}).get("missions", [])):
-                mtype = "explore"
+        elif navigate_ship:
+            mtype, ship = "navigate", navigate_ship
         else:
             return
 
         dist_to   = math.hypot(ship.x - planet.x, ship.y - planet.y)
         dist_back = math.hypot(planet.x - ship.home.x, planet.y - ship.home.y)
 
-        has_highway = (mtype != "patrol" and highways is not None and
+        has_highway = (mtype != "navigate" and highways is not None and
                        frozenset({ship.home.id, planet.id}) in highways)
         speed_mult = 1.5 if has_highway else 1.0
         travel_to   = dist_to   / max(ship.speed * speed_mult, 1)
@@ -644,12 +640,12 @@ class PlanetUI:
         else:
             mission_dur = 0.0
 
-        one_way = mtype in MISSION_ONE_WAY or mtype == "patrol"
+        one_way = mtype in MISSION_ONE_WAY or mtype == "navigate"
         total = travel_to + mission_dur + (0 if one_way else travel_back)
 
         lines = []
         error = None
-        if planet is ship.home and not (mtype == "patrol" and not ship.is_docked):
+        if planet is ship.home and not (mtype == "navigate" and not ship.is_docked):
             error = ("Même planète", RED)
         elif mtype == "explore" and planet.explored:
             error = (f"{planet.name} déjà explorée", ORANGE)
@@ -673,8 +669,8 @@ class PlanetUI:
             error = ("Même planète", RED)
 
         fuel_ok_return = True
-        if mtype in ("patrol", "navigate"):
-            fuel = ship.fuel_cost_patrol(planet.x, planet.y)
+        if mtype == "navigate":
+            fuel = ship.fuel_cost_navigate(planet.x, planet.y)
             fuel_return = ship._fuel_to_nearest_colony(planet.x, planet.y, [])
             fuel_ok_leg = ship.fuel_remaining >= fuel
             fuel_ok_return = ship.fuel_remaining >= fuel + fuel_return
@@ -701,7 +697,7 @@ class PlanetUI:
                      f" ({fuel:.0f} requis)", RED)
 
         hab_hint = None
-        if error is None and planet.explored and not planet.habitable and mtype not in ("colonize", "patrol"):
+        if error is None and planet.explored and not planet.habitable and mtype not in ("colonize", "navigate"):
             hab_hint = ("Non colonisable (inhabitable)", (100, 80, 60))
 
         if error:
@@ -736,7 +732,6 @@ class PlanetUI:
             "mine":     "Extraire",
             "colonize": "Coloniser",
             "highway":  "Autoroute",
-            "patrol":   "Naviguer",
             "navigate": "Naviguer",
             "transport":"Transport",
         }
@@ -771,10 +766,10 @@ class PlanetUI:
             surface.blit(f.render(txt, True, color),
                          (tx + pad, ty + title_h + 2 + i * line_h))
 
-    def draw_patrol_hover(self, surface, wx, wy, camera, ship, planets=None):
+    def draw_navigate_hover(self, surface, wx, wy, camera, ship, planets=None):
         dist = math.hypot(ship.x - wx, ship.y - wy)
         travel_to = dist / max(ship.speed, 1)
-        fuel_leg = ship.fuel_cost_patrol(wx, wy)
+        fuel_leg = ship.fuel_cost_navigate(wx, wy)
 
         fuel_return = ship._fuel_to_nearest_colony(wx, wy, planets or [])
         fuel_needed = fuel_leg + fuel_return
@@ -1125,6 +1120,8 @@ class PlanetUI:
 
     def _draw_fleet(self, surface, pr, y, p, pending_modes=None):
         pending_modes = pending_modes or {}
+        from ship import (MISSION_IDLE, MISSION_TRAVEL, MISSION_DISCOVER, MISSION_MINE,
+                          MISSION_RETURN, MISSION_NAVIGATE, MISSION_COMBAT)
         f = _font(12)
         sf = _font(10)
         if not p.ships:
@@ -1144,7 +1141,7 @@ class PlanetUI:
         ry                = y - scroll_offset + 4
 
         _MISSION_LABELS = {"explore": "Explorer", "mine": "Extraire",
-                           "colonize": "Coloniser", "patrol": "Naviguer", "navigate": "Naviguer",
+                           "colonize": "Coloniser", "navigate": "Naviguer",
                            "highway": "Route", "recycle": "Recycler", "transport": "Transport"}
         mouse_pos = pygame.mouse.get_pos()
 
@@ -1173,23 +1170,22 @@ class PlanetUI:
             if here:
                 st_txt = "Idle – ancré"
                 st_col = (80, 220, 120)
-            elif ship.state == "idle":
+            elif ship.state == MISSION_IDLE:
                 st_txt = "Idle – hors base"
                 st_col = ORANGE
-            elif ship.state == "patrol":
-                dp = getattr(ship, "_dock_planet", None)
-                st_txt = f"Navigation → {dp.name}" if dp and dp is not p else "Naviguer"
+            elif ship.state == MISSION_NAVIGATE:
+                dp = getattr(ship, "_navigate_dest", None)
+                st_txt = f"Navigation → ({int(dp[0])},{int(dp[1])})" if dp else "Navigation"
                 st_col = ORANGE
-            elif ship.state == "combat":
+            elif ship.state == MISSION_COMBAT:
                 st_txt = "Combat"
                 st_col = RED
             else:
                 st_txt, st_col = {
-                    "travel":     ("En transit",   CYAN),
-                    "discovering":("Exploration",   GOLD),
-                    "mining":     ("Extraction",   ORANGE),
-                    "returning":  ("Retour base",  GREEN),
-                    "exploring":  ("Exploration",  CYAN),
+                    MISSION_TRAVEL:   ("En transit",   CYAN),
+                    MISSION_DISCOVER: ("Exploration",  GOLD),
+                    MISSION_MINE:     ("Extraction",   ORANGE),
+                    MISSION_RETURN:   ("Retour base",  GREEN),
                 }.get(ship.state, (ship.state, WHITE))
                 mission_type_now = getattr(ship, "_mission_type", None)
                 if mission_type_now == "transport" and ship.state in ("travel", "returning"):
@@ -1203,60 +1199,62 @@ class PlanetUI:
                     st_col = CYAN
             surface.blit(sf.render(st_txt, True, st_col), (pr.x + 12, ry + 22))
 
-            if ship.state == "idle":
+            if ship.state in (MISSION_IDLE, MISSION_NAVIGATE):
                 missions = SHIP_DEFS[ship.type]["missions"]
-                # "explore" auto via navigate hover; "recycle"/"transport" have dedicated rows below
-                display_missions = [m for m in missions if m not in ("explore", "recycle", "transport")]
+                display_missions = [m for m in missions if m not in ("recycle", "transport")]
                 n = len(display_missions)
-                bx = right - n * 76 - (n - 1) * 6 - 4
+                bx = right - n * 76 - max(0, n - 1) * 6 - 4
                 for mi, mtype in enumerate(display_missions):
                     is_active = pending_modes.get(ship) == mtype
-                    enabled = not (mtype in ("patrol", "navigate")
-                                   and ship.fuel_remaining < 1.0)
-                    # navigate/patrol always at the left slot of the two-button layout
-                    # so Annuler can appear to its right without shifting it
-                    if mtype in ("patrol", "navigate"):
-                        btn_x = right - 164
-                    else:
-                        btn_x = bx + mi * 82
+                    enabled = not (mtype == "navigate" and ship.fuel_remaining < 1.0)
+                    btn_x = bx + mi * 82
                     btn = Button((btn_x, ry + 10, 76, 20),
                                  _MISSION_LABELS.get(mtype, mtype.capitalize()),
                                  tooltip=f"{mtype}:{ship.id}", active=is_active, enabled=enabled)
                     btn.handle_mouse(mouse_pos); btn.draw(surface)
                     self._buttons.append(btn)
+                _nav_cancel_shown = False
+                if ship.state == MISSION_NAVIGATE:
+                    cancel_nav = Button((right - 80, ry + 32, 76, 16),
+                                        "Annuler", tooltip=f"cancel_mission:{ship.id}")
+                    cancel_nav.handle_mouse(mouse_pos); cancel_nav.draw(surface)
+                    self._buttons.append(cancel_nav)
+                    _nav_cancel_shown = True
                 if ship.can_do("recycle"):
-                    cbtn = Button((right - 80, ry + 32, 76, 16),
+                    _rx = right - 160 if _nav_cancel_shown else right - 80
+                    cbtn = Button((_rx, ry + 32, 76, 16),
                                   "Recycler", tooltip=f"collect:{ship.id}",
                                   active=(pending_modes.get(ship) == "recycle"))
                     cbtn.handle_mouse(mouse_pos); cbtn.draw(surface)
                     self._buttons.append(cbtn)
                 if ship.can_do("transport"):
-                    tbtn = Button((right - 160, ry + 32, 76, 16),
+                    _tx = right - 240 if _nav_cancel_shown else right - 160
+                    tbtn = Button((_tx, ry + 32, 76, 16),
                                   "Transport",
                                   tooltip=f"transport_open:{ship.id}",
                                   active=(pending_modes.get(ship) == "transport"))
                     tbtn.handle_mouse(mouse_pos); tbtn.draw(surface)
                     self._buttons.append(tbtn)
-            elif ship.state in ("patrol", "combat"):
-                patrol_btn = Button((right - 164, ry + 10, 76, 20),
-                                    "Naviguer", tooltip=f"patrol:{ship.id}",
-                                    active=pending_modes.get(ship) in ("navigate", "patrol"))
-                patrol_btn.handle_mouse(mouse_pos); patrol_btn.draw(surface)
-                self._buttons.append(patrol_btn)
-                btn = Button((right - 84, ry + 10, 80, 20),
-                             "Annuler", tooltip=f"cancel_mission:{ship.id}")
-                btn.handle_mouse(mouse_pos); btn.draw(surface)
-                self._buttons.append(btn)
+            elif ship.state == MISSION_COMBAT:
+                nav_btn = Button((right - 164, ry + 10, 76, 20),
+                                  "Naviguer", tooltip=f"navigate:{ship.id}",
+                                  active=pending_modes.get(ship) == "navigate")
+                nav_btn.handle_mouse(mouse_pos); nav_btn.draw(surface)
+                self._buttons.append(nav_btn)
+                cancel_btn = Button((right - 84, ry + 10, 80, 20),
+                                     "Annuler", tooltip=f"cancel_mission:{ship.id}")
+                cancel_btn.handle_mouse(mouse_pos); cancel_btn.draw(surface)
+                self._buttons.append(cancel_btn)
                 if ship.can_do("recycle"):
                     cbtn = Button((right - 80, ry + 32, 76, 16),
                                   "Recycler", tooltip=f"collect:{ship.id}",
                                   active=(pending_modes.get(ship) == "recycle"))
                     cbtn.handle_mouse(mouse_pos); cbtn.draw(surface)
                     self._buttons.append(cbtn)
-            elif ship.state in ("travel", "discovering", "mining"):
+            elif ship.state in (MISSION_TRAVEL, MISSION_DISCOVER, MISSION_MINE):
                 _one_way = getattr(ship, "_mission_type", None) in MISSION_ONE_WAY
                 if _one_way:
-                    if ship.state == "travel" and ship.target_planet:
+                    if ship.state == MISSION_TRAVEL and ship.target_planet:
                         _d_home   = math.hypot(ship.x - ship.home.x, ship.y - ship.home.y)
                         _d_target = math.hypot(ship.x - ship.target_planet.x, ship.y - ship.target_planet.y)
                         _can_cancel = _d_home < _d_target

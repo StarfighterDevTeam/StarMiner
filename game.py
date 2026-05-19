@@ -197,7 +197,7 @@ class Game:
                 s.fuel_remaining = s.fuel_capacity  # enemies magically refuel when idle
                 wx = random.randint(500, WORLD_W - 500)
                 wy = random.randint(500, WORLD_H - 500)
-                s.send_patrol(wx, wy)
+                s.send_navigate(wx, wy)
 
         for s in self.enemy_ships:
             if s._destroyed:
@@ -262,13 +262,13 @@ class Game:
                         self.camera.y = cb_planet.y - SCREEN_H / (2 * self.camera.zoom)
                 continue
 
-            # Minimap: intercept mouse events before patrol/mission modes
+            # Minimap: intercept mouse events before navigate/mission modes
             if self.minimap.handle_event(event, self.camera):
                 continue
 
-            # Navigate/patrol mode: click map to send ship to a destination
+            # Navigate mode: click map to send ship to a destination
             # (checked before ShipUI so an outside click doesn't auto-close the panel)
-            if self._pending_dispatch and self._pending_dispatch[1] in ("navigate", "patrol"):
+            if self._pending_dispatch and self._pending_dispatch[1] == "navigate":
                 if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                     on_ui = ((self.ui.visible and self.ui.panel_rect.collidepoint((mx, my))) or
                              (self.ship_ui.visible and self.ship_ui.panel_rect.collidepoint((mx, my))) or
@@ -291,8 +291,8 @@ class Game:
                                 None)
                             if dock_planet:
                                 wx, wy = dock_planet.x, dock_planet.y
-                            ok = ship.send_patrol(wx, wy, dock_planet=dock_planet,
-                                                  planets=self.planets)
+                            ok = ship.send_navigate(wx, wy, dock_planet=dock_planet,
+                                                    planets=self.planets)
                         if not ok:
                             self._pending_dispatch = (ship, mtype)
                             self._hud_msg = f"Carburant insuffisant ({ship.fuel_type})"
@@ -331,10 +331,15 @@ class Game:
 
             # Ship UI events (intercepts clicks on its panel)
             ship_ev = self.ship_ui.handle_event(event)
-            if ship_ev == "patrol_requested":
+            if ship_ev == "navigate_requested":
                 _s = self.ship_ui.ship
-                _ms = SHIP_DEFS.get(_s.type, {}).get("missions", [])
-                self._pending_dispatch = (_s, "navigate" if "navigate" in _ms else "patrol")
+                self._pending_dispatch = (_s, "navigate")
+                continue
+            if ship_ev == "explore_requested":
+                _s = self.ship_ui.ship
+                self.ui._mission_mode = ("explore", _s)
+                self._hud_msg = "Cliquez sur une planète à explorer"
+                self._hud_msg_timer = 3.0
                 continue
             if ship_ev == "collect_requested":
                 self._pending_dispatch = (self.ship_ui.ship, "recycle")
@@ -344,13 +349,12 @@ class Game:
 
             # Planet UI events
             if self.ui.handle_event(event, self.planets, self.ships):
-                # Promote patrol request immediately so the patrol block
+                # Promote navigate request immediately so the navigate block
                 # can protect subsequent events within the same frame.
-                if self.ui._patrol_request:
-                    _s = self.ui._patrol_request
-                    _ms = SHIP_DEFS.get(_s.type, {}).get("missions", [])
-                    self._pending_dispatch = (_s, "navigate" if "navigate" in _ms else "patrol")
-                    self.ui._patrol_request = None
+                if self.ui._navigate_request:
+                    _s = self.ui._navigate_request
+                    self._pending_dispatch = (_s, "navigate")
+                    self.ui._navigate_request = None
                 if self.ui._collect_request:
                     self._pending_dispatch = (self.ui._collect_request, "recycle")
                     self.ui._collect_request = None
@@ -494,7 +498,7 @@ class Game:
         _pending_ship = self._pending_dispatch[0] if self._pending_dispatch else None
         _range_ship = _pending_ship or (self.ship_ui.ship if self.ship_ui.visible else None)
         if _range_ship:
-            self._draw_patrol_range_circle(_range_ship)
+            self._draw_navigate_range_circle(_range_ship)
 
         dispatch_modes = {}
         if self._pending_dispatch:
@@ -502,32 +506,32 @@ class Game:
             dispatch_modes[_ds] = _dm
         self.ui.draw(self.screen, self.planets, self.highways, dispatch_modes=dispatch_modes)
         if self._hovered_planet:
-            _is_nav = self._pending_dispatch and self._pending_dispatch[1] in ("navigate", "patrol")
+            _is_nav = self._pending_dispatch and self._pending_dispatch[1] == "navigate"
             _hint_ship = self._pending_dispatch[0] if _is_nav else None
             if not _hint_ship and self.ship_ui.visible and self.ship_ui.ship:
                 _s = self.ship_ui.ship
                 _ms = SHIP_DEFS.get(_s.type, {}).get("missions", [])
-                if "navigate" in _ms or "patrol" in _ms:
+                if "navigate" in _ms:
                     _hint_ship = _s
             self.ui.draw_mission_hover(self.screen, self._hovered_planet, self.camera, self.highways,
-                                       patrol_ship=_hint_ship)
+                                       navigate_ship=_hint_ship)
         elif self._hovered_debris and not self._hovered_planet:
             _debris_ship = (_pending_ship
                             or (self.ship_ui.ship if self.ship_ui.visible else None))
             if _debris_ship:
                 self.ui.draw_debris_hover(self.screen, self._hovered_debris, self.camera,
                                           _debris_ship)
-        elif self._pending_dispatch and self._pending_dispatch[1] in ("navigate", "patrol"):
+        elif self._pending_dispatch and self._pending_dispatch[1] == "navigate":
             mx, my = pygame.mouse.get_pos()
             wx, wy = self.camera.screen_to_world(mx, my)
-            self.ui.draw_patrol_hover(self.screen, wx, wy, self.camera,
-                                      self._pending_dispatch[0], planets=self.planets)
+            self.ui.draw_navigate_hover(self.screen, wx, wy, self.camera,
+                                        self._pending_dispatch[0], planets=self.planets)
         self.ship_ui.draw(self.screen, dispatch_modes=dispatch_modes)
         self.colony_bar.draw(self.screen, self.planets,
                              selected_planet=self.ui.planet if self.ui.visible else None,
                              mission_mode=bool(self.ui._mission_mode))
         self._draw_mission_dash()
-        self._draw_patrol_overlay()
+        self._draw_navigate_overlay()
         self._draw_collect_overlay()
         self._draw_hud()
         self.minimap.draw(self.screen, self.planets, self.camera)
@@ -546,7 +550,7 @@ class Game:
             color = (180, 180, 180) if ok else (220, 70, 70)
             _draw_dashed_line(self.screen, color, src, dst)
 
-        if self._pending_dispatch and self._pending_dispatch[1] in ("navigate", "patrol"):
+        if self._pending_dispatch and self._pending_dispatch[1] == "navigate":
             ship = self._pending_dispatch[0]
             src_x = ship.home.x if ship.is_docked else ship.x
             src_y = ship.home.y if ship.is_docked else ship.y
@@ -557,11 +561,11 @@ class Game:
             else:
                 wx_dst, wy_dst = self.camera.screen_to_world(mx, my)
                 dst = (mx, my)
-            color = (180, 180, 180) if ship.can_patrol_to(wx_dst, wy_dst, self.planets) else (220, 70, 70)
+            color = (180, 180, 180) if ship.can_navigate_to(wx_dst, wy_dst, self.planets) else (220, 70, 70)
             _draw_dashed_line(self.screen, color, src, dst)
 
-    def _draw_patrol_range_circle(self, ship):
-        """Draw the exact reachable patrol zone as a polygon.
+    def _draw_navigate_range_circle(self, ship):
+        """Draw the exact reachable navigate zone as a polygon.
 
         For each sampled direction the max reach d satisfies:
           d + dist(P, nearest_colony) = R  (R = fuel_remaining / fuel_rate)
@@ -610,8 +614,8 @@ class Game:
         color = GOLD if ship.pnr_advisory else (200, 120, 20)
         pygame.draw.polygon(self.screen, color, pts, 2)
 
-    def _draw_patrol_overlay(self):
-        if not (self._pending_dispatch and self._pending_dispatch[1] in ("navigate", "patrol")):
+    def _draw_navigate_overlay(self):
+        if not (self._pending_dispatch and self._pending_dispatch[1] == "navigate"):
             return
         try:
             font = pygame.font.SysFont("consolas", 14)
