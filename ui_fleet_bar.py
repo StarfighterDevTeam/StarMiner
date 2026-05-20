@@ -12,20 +12,28 @@ START_X = 175   # right of minimap (minimap ends at x=170)
 
 
 class FleetBar:
+    def __init__(self):
+        self._last_click: dict = {}  # fleet.id -> ticks of last click
+
     def contains_point(self, pos):
         return pos[1] >= BAR_Y and pos[0] >= START_X
 
     def handle_event(self, event, fleets):
-        """Returns ('select', fleet) | ('consume', None) | (None, None)."""
+        """Returns ('select', fleet) | ('center', fleet) | ('consume', None) | (None, None)."""
         if event.type != pygame.MOUSEBUTTONDOWN or event.button != 1:
             return None, None
         mx, my = pygame.mouse.get_pos()
         if my < BAR_Y or mx < START_X:
             return None, None
+        now = pygame.time.get_ticks()
         x = START_X + CARD_PAD
         for fleet in fleets.values():
             card_rect = pygame.Rect(x, BAR_Y + (BAR_H - CARD_H) // 2, CARD_W, CARD_H)
             if card_rect.collidepoint((mx, my)):
+                last = self._last_click.get(fleet.id, 0)
+                self._last_click[fleet.id] = now
+                if now - last < 400:
+                    return "center", fleet
                 return "select", fleet
             x += CARD_W + CARD_PAD
         return "consume", None

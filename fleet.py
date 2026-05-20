@@ -53,7 +53,7 @@ class Fleet:
 
     # ── missions ─────────────────────────────────────────────────
     def send_navigate(self, wx, wy, planets=None):
-        if self.state not in ("docked", "orbiting") or not self.ships:
+        if self.state not in ("docked", "orbiting", "navigate") or not self.ships:
             return False
         planets = planets or []
         for s in self.ships:

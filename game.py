@@ -276,17 +276,20 @@ class Game:
 
             # Fleet bar
             fb_action, fb_fleet = self.fleet_bar.handle_event(event, self.fleets)
-            if fb_action == "select" and fb_fleet:
+            if fb_action in ("select", "center") and fb_fleet:
                 self.fleet_ui.open(fb_fleet)
                 self.ship_ui.close()
                 self.ui.close()
+                if fb_action == "center":
+                    self.camera.x = fb_fleet.x - SCREEN_W / (2 * self.camera.zoom)
+                    self.camera.y = fb_fleet.y - SCREEN_H / (2 * self.camera.zoom)
                 continue
-            if fb_action in ("select", "consume"):
+            if fb_action in ("select", "center", "consume"):
                 continue
 
-            # Fleet UI events
+            # Fleet UI events (skipped during pending fleet dispatch to prevent auto-close)
             _fleet_ui_fleet_before = self.fleet_ui.fleet if self.fleet_ui.visible else None
-            fleet_ev = self.fleet_ui.handle_event(event)
+            fleet_ev = None if self._pending_fleet_dispatch else self.fleet_ui.handle_event(event)
             if fleet_ev == "fleet_navigate_requested":
                 self._pending_fleet_dispatch = self.fleet_ui.fleet
                 continue
@@ -471,13 +474,15 @@ class Game:
 
                 clicked_ship = next(
                     (s for s in self.ships
-                     if not s.is_docked and s.is_clicked(mx, my, self.camera)), None)
+                     if not s.is_docked and s.fleet is None
+                     and s.is_clicked(mx, my, self.camera)), None)
                 if clicked_ship:
                     if self.ship_ui.visible and self.ship_ui.ship is clicked_ship:
                         self.ship_ui.close()
                     else:
                         self.ship_ui.open(clicked_ship)
                         self.ui.close()
+                        self.fleet_ui.close()
                     continue
 
                 clicked_planet = next(
@@ -555,7 +560,8 @@ class Game:
         if not _any_ui:
             self._hovered_ship = next(
                 (s for s in self.ships + list(self._visible_enemies)
-                 if not s.is_docked and s.is_clicked(mx, my, self.camera)), None)
+                 if not s.is_docked and s.fleet is None
+                 and s.is_clicked(mx, my, self.camera)), None)
 
         # Planet hover (only if no ship hovered)
         self._hovered_planet = None

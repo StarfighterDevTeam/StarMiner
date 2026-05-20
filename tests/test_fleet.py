@@ -146,13 +146,13 @@ def test_send_navigate_empty_fleet():
     assert f.send_navigate(1000, 2000) is False
 
 
-def test_send_navigate_not_docked():
+def test_send_navigate_blocked_while_returning():
     from fleet import Fleet
     p = FakePlanet()
     s = FakeShip(home=p); p.ships.append(s)
     f = Fleet(p)
     f.add_ship(s)
-    f.state = "navigate"
+    f.state = "returning"
     assert f.send_navigate(500, 500) is False
 
 

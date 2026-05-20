@@ -1149,17 +1149,19 @@ class PlanetUI:
                 "combat":    ("Au combat",   RED),
             }
             slabel, scolor = STATE_LABELS_F.get(fleet.state, (fleet.state, WHITE))
-            fleet_line = f.render(
-                f"{fleet.name}  —  {slabel}  [{len(fleet.ships)} vaisseaux]",
-                True, scolor)
-            surface.blit(fleet_line, (pr.x + 12, y + 4))
+            line1 = f.render(f"{fleet.name}  —  {slabel}", True, scolor)
+            n = len(fleet.ships)
+            line2 = sf.render(
+                f"[{n} vaisseau{'x' if n > 1 else ''}]", True, scolor)
+            surface.blit(line1, (pr.x + 12, y + 2))
+            surface.blit(line2, (pr.x + 12, y + 16))
             _mp = pygame.mouse.get_pos()
-            manage_btn = Button((pr.x + pr.w - 92, y + 2, 76, 20),
+            manage_btn = Button((pr.x + pr.w - 92, y + 8, 76, 20),
                                 "Gérer", tooltip=f"fleet_manage:{fleet.id}",
                                 active=(open_fleet is fleet))
             manage_btn.handle_mouse(_mp); manage_btn.draw(surface)
             self._buttons.append(manage_btn)
-            f_sec_h = 28
+            f_sec_h = 36
         else:
             eligible = any(
                 s.state == "idle" and s.fleet is None

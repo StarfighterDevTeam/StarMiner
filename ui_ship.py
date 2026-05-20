@@ -66,7 +66,7 @@ class ShipUI:
     @property
     def panel_rect(self):
         h = getattr(self, '_panel_h', self.PANEL_H)
-        return pygame.Rect(int(SCREEN_W) - self.PANEL_W - 10, 50, self.PANEL_W, h)
+        return pygame.Rect(10, 200, self.PANEL_W, h)
 
     def handle_event(self, event):
         if not self.visible:
