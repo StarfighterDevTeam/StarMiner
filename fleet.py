@@ -14,7 +14,7 @@ class Fleet:
         self.name  = f"Flotte de {home.name}"
         self.home  = home
         self.ships : list = []
-        self.state : str  = "docked"        # "docked"|"navigate"|"combat"|"returning"
+        self.state : str  = "docked"        # "docked"|"orbiting"|"navigate"|"returning"|"combat"
         self._pre_combat_state : str = "docked"
         self.x : float = float(home.x)
         self.y : float = float(home.y)
@@ -53,7 +53,7 @@ class Fleet:
 
     # ── missions ─────────────────────────────────────────────────
     def send_navigate(self, wx, wy, planets=None):
-        if self.state != "docked" or not self.ships:
+        if self.state not in ("docked", "orbiting") or not self.ships:
             return False
         planets = planets or []
         for s in self.ships:
@@ -69,7 +69,7 @@ class Fleet:
         return True
 
     def send_return(self, planets=None):
-        if self.state not in ("navigate", "docked") or not self.ships:
+        if self.state not in ("navigate", "docked", "orbiting") or not self.ships:
             return False
         planets = planets or []
         for s in self.ships:
@@ -89,7 +89,7 @@ class Fleet:
                 s._target_enemy     = None
                 s.state             = "idle"
                 s.__dict__.pop("_fleet_nav_speed", None)
-        self.state       = "docked"
+        self.state       = "orbiting"
         self._nav_target = None
         return True
 
@@ -126,15 +126,20 @@ class Fleet:
             return
 
         if self.state in ("navigate", "returning"):
-            # Override speed for navigating members
             for s in self.ships:
                 if s.state == "navigate":
                     s._fleet_nav_speed = fleet_speed
-            # Transition to docked when all members idle
+
+        if self.state in ("navigate", "returning", "orbiting"):
             if all(s.state == "idle" for s in self.ships):
                 for s in self.ships:
                     s.__dict__.pop("_fleet_nav_speed", None)
-                self.state       = "docked"
+                docked_p = next(
+                    (p for p in planets
+                     if p.colonized and math.hypot(self.x - p.x, self.y - p.y) < 80),
+                    None
+                )
+                self.state       = "docked" if docked_p else "orbiting"
                 self._nav_target = None
 
     # ── map interaction ───────────────────────────────────────────

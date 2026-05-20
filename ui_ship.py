@@ -35,10 +35,10 @@ class ShipUI:
         _can_navigate = s.fire_range > 0 or "navigate" in SHIP_DEFS.get(s.type, {}).get("missions", [])
         if _can_navigate:
             h += 26  # navigate row
-        if s.can_do("explore"):
-            h += 26  # explore row
         if s.can_do("recycle"):
             h += 26  # recycle row
+        if s.can_do("explore"):
+            h += 26  # explore row
 
         if s.capacity > 0:
             h += 8   # separator before cargo
@@ -57,11 +57,10 @@ class ShipUI:
 
         h += 8   # separator before stats
         h += 13  # speed stat
-        h += 13  # fuel rate stat
-        if s.fuel_capacity:
-            h += 13 + 10  # tank label + bar (6px) + padding (4px)
-        else:
-            h += 8   # bottom pad
+        h += 13  # fuel stat
+        if s.fuel_remaining > 0:
+            h += 13  # fuel remaining (in flight)
+        h += 8   # bottom pad
         return h
 
     @property
@@ -81,8 +80,6 @@ class ShipUI:
                     self.ship.repeat = not self.ship.repeat
                 elif btn.tooltip == "navigate_request" and self.ship:
                     return "navigate_requested"
-                elif btn.tooltip == "explore_request" and self.ship:
-                    return "explore_requested"
                 elif btn.tooltip == "collect_request" and self.ship:
                     return "collect_requested"
                 return True
@@ -133,7 +130,7 @@ class ShipUI:
             MISSION_DISCOVER: "En exploration",
             MISSION_MINE:     "En extraction",
             MISSION_RETURN:   "Retour",
-            MISSION_NAVIGATE: "En navigation",
+            MISSION_NAVIGATE:   "En navigation",
             MISSION_COMBAT:   "Au combat",
         }
         STATE_COLORS = {
@@ -142,7 +139,7 @@ class ShipUI:
             MISSION_DISCOVER: GOLD,
             MISSION_MINE:     ORANGE,
             MISSION_RETURN:   GREEN,
-            MISSION_NAVIGATE: ORANGE,
+            MISSION_NAVIGATE:   ORANGE,
             MISSION_COMBAT:   RED,
         }
         sf = _font(12)
@@ -284,8 +281,7 @@ class ShipUI:
             has_nav_cancel = s.state in (MISSION_NAVIGATE, MISSION_COMBAT)
             bx = pr.x + 10
             bw = 140
-            nav_btn = Button((bx, y + 2, bw, 20), "Naviguer", tooltip="navigate_request",
-                             active=((dispatch_modes or {}).get(s) == "navigate"))
+            nav_btn = Button((bx, y + 2, bw, 20), "Naviguer", tooltip="navigate_request")
             nav_btn.handle_mouse(pygame.mouse.get_pos())
             nav_btn.draw(surface)
             self._buttons.append(nav_btn)
@@ -295,16 +291,7 @@ class ShipUI:
                 cancel_btn.handle_mouse(pygame.mouse.get_pos())
                 cancel_btn.draw(surface)
                 self._buttons.append(cancel_btn)
-            y += 26
-
-        if s.can_do("explore"):
-            explore_btn = Button((pr.x + 10, y + 2, 140, 20), "Explorer",
-                                 tooltip="explore_request",
-                                 active=((dispatch_modes or {}).get(s) == "explore"))
-            explore_btn.handle_mouse(pygame.mouse.get_pos())
-            explore_btn.draw(surface)
-            self._buttons.append(explore_btn)
-            y += 26
+            y += 26  # always advance
 
         if s.can_do("recycle"):
             recycle_btn = Button((pr.x + 10, y + 2, 140, 20), "Recycler",
@@ -312,6 +299,14 @@ class ShipUI:
             recycle_btn.handle_mouse(pygame.mouse.get_pos())
             recycle_btn.draw(surface)
             self._buttons.append(recycle_btn)
+            y += 26
+
+        if s.can_do("explore"):
+            explore_btn = Button((pr.x + 10, y + 2, 140, 20), "Explorer",
+                                 tooltip="explore_request", active=((dispatch_modes or {}).get(s) == "explore"))
+            explore_btn.handle_mouse(pygame.mouse.get_pos())
+            explore_btn.draw(surface)
+            self._buttons.append(explore_btn)
             y += 26
 
         # ── Cargo ────────────────────────────────────────────────
@@ -385,19 +380,18 @@ class ShipUI:
         surface.blit(fuel_rate_t, (pr.x + 12, y))
         y += 13
 
-        # Fuel tank gauge (combat ships with dedicated tank only)
-        if s.fuel_capacity:
-            ratio = max(0.0, min(1.0, s.fuel_remaining / s.fuel_capacity))
-            low = ratio < 0.25
-            fc = RED if ratio < 0.1 else (ORANGE if low else CYAN)
-            tank_label = f"Réservoir : {s.fuel_remaining:.0f} / {s.fuel_capacity} {s.fuel_type}"
-            surface.blit(_font(10).render(tank_label, True, fc), (pr.x + 12, y))
-            y += 13
-            bar_x, bar_y = pr.x + 12, y
-            bar_w, bar_h = pr.w - 24, 6
-            pygame.draw.rect(surface, (22, 28, 48), (bar_x, bar_y, bar_w, bar_h), border_radius=3)
-            fw = int(bar_w * ratio)
-            if fw > 0:
-                pygame.draw.rect(surface, fc, (bar_x, bar_y, fw, bar_h), border_radius=3)
-            pygame.draw.rect(surface, (50, 65, 100), (bar_x, bar_y, bar_w, bar_h), 1, border_radius=3)
+        # Fuel tank gauge
+        ratio = max(0.0, min(1.0, s.fuel_remaining / s.fuel_capacity))
+        low = ratio < 0.25
+        fc = RED if ratio < 0.1 else (ORANGE if low else CYAN)
+        tank_label = f"Réservoir : {s.fuel_remaining:.0f} / {s.fuel_capacity} {s.fuel_type}"
+        surface.blit(_font(10).render(tank_label, True, fc), (pr.x + 12, y))
+        y += 13
+        bar_x, bar_y = pr.x + 12, y
+        bar_w, bar_h = pr.w - 24, 6
+        pygame.draw.rect(surface, (22, 28, 48), (bar_x, bar_y, bar_w, bar_h), border_radius=3)
+        fw = int(bar_w * ratio)
+        if fw > 0:
+            pygame.draw.rect(surface, fc, (bar_x, bar_y, fw, bar_h), border_radius=3)
+        pygame.draw.rect(surface, (50, 65, 100), (bar_x, bar_y, bar_w, bar_h), 1, border_radius=3)
         y += 10

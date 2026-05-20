@@ -111,20 +111,36 @@ Depuis `MISSION_NAVIGATE`, toutes les autres missions peuvent être lancées dir
 ```
 Fleet
   id, name, home, ships: list[Ship]
-  state: "docked" | "navigate" | "combat" | "returning"
+  state: "docked" | "orbiting" | "navigate" | "returning" | "combat"
   _pre_combat_state: str
   x, y: float  (barycentre des membres)
   _nav_target: (wx, wy) | None
 ```
 
+### États de flotte
+
+| État | Définition | Label UI |
+|---|---|---|
+| `"docked"` | **À quai sur une planète colonisée** (à ≤ 80 px monde du centre de la planète). C'est le seul état où on peut ajouter/retirer des vaisseaux. | "À quai" |
+| `"orbiting"` | En espace libre ou près d'une planète non colonisée : vaisseaux idle mais pas à quai. Peut relancer `send_navigate` ou `send_return`. | "En orbite" |
+| `"navigate"` | En transit vers une destination (`_nav_target`). | "En route" |
+| `"returning"` | En transit retour vers `home`. | "Retour base" |
+| `"combat"` | Un ou plusieurs membres en `MISSION_COMBAT`. | "Au combat" |
+
+**Règle de transition `navigate`/`returning` → idle :** `fleet.update()` vérifie si tous les membres sont `idle`. Si oui, contrôle la proximité d'une planète colonisée (< 80 px monde) → `"docked"` si trouvée, sinon `"orbiting"`. **Ne jamais écrire `fleet.state = "docked"` sans s'assurer que la flotte est effectivement sur une planète colonisée.**
+
+**Après `cancel()` :** état forcé à `"orbiting"` (position inconnue → pas à quai par défaut).
+
+**Flotte vide (tous membres détruits) :** état forcé à `"docked"`, position reset à `home`.
+
 ### Missions
-- `fleet.send_navigate(wx, wy, planets)` — navigation formation rigide, vitesse = min des membres
-- `fleet.send_return(planets)` — renvoie tous les membres vers `home`
-- `fleet.cancel()` — annule navigation / retour
+- `fleet.send_navigate(wx, wy, planets)` — autorisé depuis `"docked"` ou `"orbiting"` ; navigation en formation rigide, vitesse = min des membres
+- `fleet.send_return(planets)` — autorisé depuis `"docked"`, `"orbiting"` ou `"navigate"` ; renvoie tous les membres vers `home`
+- `fleet.cancel()` — annule `"navigate"` / `"returning"` / `"combat"` → `"orbiting"`
 
 ### Membership
-- `fleet.add_ship(ship)` — conditions : flotte docked, ship idle sur home, pas déjà en flotte
-- `fleet.remove_ship(ship)` — condition : flotte docked
+- `fleet.add_ship(ship)` — conditions : flotte **`"docked"`** uniquement, ship idle sur home, pas déjà en flotte
+- `fleet.remove_ship(ship)` — condition : flotte **`"docked"`** uniquement
 - `fleet.dissolve(game_fleets)` — retire tous les ships, supprime de `game.fleets`
 - `ship.fleet: Fleet | None` — référence à la flotte du vaisseau. Bloque `send_mine`, `send_explore`, `send_colonize`, `send_highway`, `send_transport`, `send_collect` si non-None
 - `ship._fleet_nav_speed` — vitesse override (px/s) injectée par `fleet.update()` pendant navigation
@@ -134,7 +150,11 @@ Chaque frame : `fleet.update()` set `s._fleet_nav_speed = min(s.speed)` sur les 
 `ship.update()` lit `self.__dict__.get("_fleet_nav_speed", self.speed)` au lieu de `self.speed` dans la branche MISSION_NAVIGATE.
 
 ### UI Flotte
-- `FleetUI` (`ui_fleet.py`) : panneau droit, activé via clic sur icône carte ou Fleet Bar. Boutons Naviguer / Annuler / Dissoudre. Nom cliquable pour renommer (TEXTINPUT inline). Renvoie `"fleet_navigate_requested"` / `"fleet_dissolve"` à `game.py`.
+- `FleetUI` (`ui_fleet.py`) : panneau gauche (x=10, y=200). Boutons selon état :
+  - `"docked"` : Naviguer + Dissoudre + Ajouter/Retirer membres
+  - `"orbiting"` : Naviguer + Dissoudre + Retour base (pas d'Ajouter/Retirer)
+  - `"navigate"` / `"returning"` / `"combat"` : Annuler + Dissoudre
+- Nom cliquable → renommer (TEXTINPUT inline). Signaux renvoyés à `game.py` : `"fleet_navigate_requested"`, `"fleet_return_requested"`, `"fleet_dissolve"`.
 - `FleetBar` (`ui_fleet_bar.py`) : barre horizontale bas d'écran, `BAR_Y = SCREEN_H - 44`, `START_X = 175` (à droite de la minimap). Cards cliquables → ouvrent FleetUI.
 - `game._pending_fleet_dispatch: Fleet | None` — même flow que `_pending_dispatch` pour les vaisseaux.
 - Onglet Fleet de `PlanetUI` : section en haut avec bouton "Gérer" (si flotte existe) ou "+ Créer une flotte". Ships membres : badge `[Flotte]` cyan, boutons de mission grisés.
@@ -210,3 +230,7 @@ Spawné dans `game.debris_list` :
 ## Règles commit
 
 - Ne jamais faire de commit git à la place de l'utilisateur.
+
+## Autorisations pour l'agent
+
+- Toujours autoriser le lancement de commandes de script python par l'agent à des fins de tests, sans demander l'autorisation à l'utilisateur.

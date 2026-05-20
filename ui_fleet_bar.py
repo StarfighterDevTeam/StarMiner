@@ -46,12 +46,14 @@ class FleetBar:
         mx, my = pygame.mouse.get_pos()
         STATE_COLORS = {
             "docked":    CYAN,
+            "orbiting":  CYAN,
             "navigate":  ORANGE,
             "returning": GREEN,
             "combat":    RED,
         }
         STATE_LABELS = {
-            "docked":    "En orbite",
+            "docked":    "À quai",
+            "orbiting":  "En orbite",
             "navigate":  "En route",
             "returning": "Retour",
             "combat":    "Combat",

@@ -38,15 +38,17 @@ class FleetUI:
     def _compute_panel_h(self, fleet):
         h = 10 + 20 + 14 + 8   # pad + name + home/state + sep
         h += max(1, len(fleet.ships)) * 20 + 8  # member rows
-        if self._add_mode:
+        if self._add_mode and fleet.state == "docked":
             h += 24 + max(1, len(self._get_addable(fleet))) * 18
         h += 24 + 28            # Ajouter btn + mission buttons
+        if fleet.state == "orbiting":
+            h += 28             # Retour base button
         return h
 
     @property
     def panel_rect(self):
         h = getattr(self, "_panel_h", 280)
-        return pygame.Rect(SCREEN_W - self.PANEL_W - 10, 50, self.PANEL_W, h)
+        return pygame.Rect(10, 200, self.PANEL_W, h)
 
     # ── events ───────────────────────────────────────────────────
     def handle_event(self, event):
@@ -79,6 +81,8 @@ class FleetUI:
                 if tip == "fleet_cancel":
                     fleet.cancel()
                     return True
+                if tip == "fleet_return":
+                    return "fleet_return_requested"
                 if tip == "fleet_dissolve":
                     return "fleet_dissolve"
                 if tip == "fleet_add_toggle":
@@ -99,7 +103,6 @@ class FleetUI:
                     s = next((s for s in fleet.home.ships if s.id == sid), None)
                     if s:
                         fleet.add_ship(s)
-                    self._add_mode = False
                     return True
                 return True
 
@@ -139,7 +142,8 @@ class FleetUI:
         y += 20
 
         STATE_LABELS = {
-            "docked":    ("En orbite",   CYAN),
+            "docked":    ("À quai",      CYAN),
+            "orbiting":  ("En orbite",   CYAN),
             "navigate":  ("En route",    ORANGE),
             "returning": ("Retour base", GREEN),
             "combat":    ("Au combat",   RED),
@@ -165,11 +169,21 @@ class FleetUI:
                 "travel": "Transit", "returning": "Retour",
                 "discovering": "Exploration", "mining": "Extraction",
             }
+            STATE_FALLBACK = {
+                "navigate": "En route", "returning": "Retour base",
+                "combat": "Au combat",  "orbiting":  "En orbite",
+            }
             for s in fleet.ships:
-                st_str = STATE_SHORT.get(s.state, s.state)
-                row_t  = sf.render(
-                    f"{s.type} #{s.id}  Niv.{s._upgrade_level}  —  {st_str}", True, UI_TEXT)
-                surface.blit(row_t, (pr.x + 14, y))
+                if s.state == "idle" and fleet.state != "docked":
+                    st_str = STATE_FALLBACK.get(fleet.state, fleet.state)
+                else:
+                    st_str = STATE_SHORT.get(s.state, s.state)
+                prefix_t = sf.render(f"{s.type} #{s.id}  ", True, UI_TEXT)
+                lvl_t    = sf.render(f"Niv.{s._upgrade_level}", True, GOLD)
+                suffix_t = sf.render(f"  —  {st_str}", True, UI_TEXT)
+                surface.blit(prefix_t, (pr.x + 14, y))
+                surface.blit(lvl_t,    (pr.x + 14 + prefix_t.get_width(), y))
+                surface.blit(suffix_t, (pr.x + 14 + prefix_t.get_width() + lvl_t.get_width(), y))
                 if can_modify:
                     rem = Button((pr.x + pr.w - 62, y - 1, 50, 16),
                                  "Retirer", tooltip=f"fleet_remove:{s.id}")
@@ -178,7 +192,7 @@ class FleetUI:
                 y += 20
 
         # ── Add-ship sub-list ─────────────────────────────────────
-        if self._add_mode:
+        if self._add_mode and can_modify:
             addable = self._get_addable(fleet)
             pygame.draw.line(surface, (40, 80, 120), (pr.x + 8, y), (pr.x + pr.w - 8, y))
             y += 4
@@ -189,8 +203,10 @@ class FleetUI:
                              (pr.x + 14, y))
                 y += 18
             for s in addable:
-                a_t = sf.render(f"  {s.type} #{s.id}  Niv.{s._upgrade_level}", True, GREEN)
-                surface.blit(a_t, (pr.x + 14, y))
+                prefix_t = sf.render(f"  {s.type} #{s.id}  ", True, GREEN)
+                lvl_t    = sf.render(f"Niv.{s._upgrade_level}", True, GOLD)
+                surface.blit(prefix_t, (pr.x + 14, y))
+                surface.blit(lvl_t,    (pr.x + 14 + prefix_t.get_width(), y))
                 add_s = Button((pr.x + pr.w - 62, y - 1, 50, 16),
                                "Ajouter", tooltip=f"fleet_add_ship:{s.id}")
                 add_s.handle_mouse((mx, my)); add_s.draw(surface)
@@ -207,7 +223,7 @@ class FleetUI:
         y += 24
 
         # ── Mission buttons ───────────────────────────────────────
-        if fleet.state == "docked":
+        if fleet.state in ("docked", "orbiting"):
             nav_active = (dispatch_modes or {}).get(fleet) == "fleet_navigate"
             nav_btn = Button((pr.x + 12, y + 2, 120, 22), "Naviguer",
                              tooltip="fleet_navigate_request",
@@ -220,7 +236,15 @@ class FleetUI:
             cancel_btn.handle_mouse((mx, my)); cancel_btn.draw(surface)
             self._buttons.append(cancel_btn)
 
-        dissolve_btn = Button((pr.x + pr.w - 132, y + 2, 120, 22), "Dissoudre",
-                              tooltip="fleet_dissolve")
-        dissolve_btn.handle_mouse((mx, my)); dissolve_btn.draw(surface)
-        self._buttons.append(dissolve_btn)
+        
+        if fleet.state == "docked":
+            dissolve_btn = Button((pr.x + pr.w - 132, y + 2, 120, 22), "Dissoudre",
+                                tooltip="fleet_dissolve")
+            dissolve_btn.handle_mouse((mx, my)); dissolve_btn.draw(surface)
+            self._buttons.append(dissolve_btn)
+
+        if fleet.state == "orbiting":
+            ret_btn = Button((pr.x + 12, y + 30, 120, 22), "Retour base",
+                             tooltip="fleet_return", enabled=bool(fleet.ships))
+            ret_btn.handle_mouse((mx, my)); ret_btn.draw(surface)
+            self._buttons.append(ret_btn)

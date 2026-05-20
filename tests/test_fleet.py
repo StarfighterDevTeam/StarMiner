@@ -164,7 +164,7 @@ def test_cancel():
     f.add_ship(s)
     f.send_navigate(1000, 2000)
     assert f.cancel() is True
-    assert f.state == "docked"
+    assert f.state == "orbiting"   # mid-flight cancel → not at any planet
     assert s.state == "idle"
     assert s._navigate_dest is None
 
@@ -195,16 +195,30 @@ def test_update_cleans_destroyed():
 
 
 def test_update_navigate_to_docked():
+    """Fleet arriving at a colonized planet → docked."""
+    from fleet import Fleet
+    p = FakePlanet()          # p.colonized=True, p.x=p.y=0
+    s = FakeShip(home=p); p.ships.append(s)
+    f = Fleet(p)
+    f.add_ship(s)
+    f.send_navigate(100, 200)
+    s.state = "idle"          # ship position stays 0,0 (fake) ≡ at planet p
+    f.update(0.016, [p], None, [])
+    assert f.state == "docked"
+    assert f._nav_target is None
+
+
+def test_update_navigate_to_orbiting():
+    """Fleet arriving at open space (no colonized planet nearby) → orbiting."""
     from fleet import Fleet
     p = FakePlanet()
     s = FakeShip(home=p); p.ships.append(s)
     f = Fleet(p)
     f.add_ship(s)
     f.send_navigate(100, 200)
-    # Simulate ship arriving
     s.state = "idle"
-    f.update(0.016, [], None, [])
-    assert f.state == "docked"
+    f.update(0.016, [], None, [])  # no planets → not docked
+    assert f.state == "orbiting"
     assert f._nav_target is None
 
 

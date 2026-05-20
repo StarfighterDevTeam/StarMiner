@@ -285,9 +285,15 @@ class Game:
                 continue
 
             # Fleet UI events
+            _fleet_ui_fleet_before = self.fleet_ui.fleet if self.fleet_ui.visible else None
             fleet_ev = self.fleet_ui.handle_event(event)
             if fleet_ev == "fleet_navigate_requested":
                 self._pending_fleet_dispatch = self.fleet_ui.fleet
+                continue
+            if fleet_ev == "fleet_return_requested":
+                f = self.fleet_ui.fleet
+                if f:
+                    f.send_return(self.planets)
                 continue
             if fleet_ev == "fleet_dissolve":
                 f = self.fleet_ui.fleet
@@ -429,7 +435,7 @@ class Game:
                     p = self.ui._open_fleet_request
                     self.ui._open_fleet_request = None
                     f = self.fleets.get(p.id)
-                    if f:
+                    if f and f is not _fleet_ui_fleet_before:
                         self.fleet_ui.open(f)
                         self.ship_ui.close()
                 continue
@@ -603,7 +609,9 @@ class Game:
         if self.ui._mission_mode:
             _mm_type, _mm_ship = self.ui._mission_mode
             dispatch_modes[_mm_ship] = _mm_type
-        self.ui.draw(self.screen, self.planets, self.highways, dispatch_modes=dispatch_modes)
+        _open_fleet = self.fleet_ui.fleet if self.fleet_ui.visible else None
+        self.ui.draw(self.screen, self.planets, self.highways, dispatch_modes=dispatch_modes,
+                     open_fleet=_open_fleet)
         if self._hovered_planet:
             _is_nav = self._pending_dispatch and self._pending_dispatch[1] == "navigate"
             _hint_ship = self._pending_dispatch[0] if _is_nav else None

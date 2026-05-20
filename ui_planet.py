@@ -459,7 +459,7 @@ class PlanetUI:
             self.show_message(f"Mission {mtype} → {target_planet.name}" if ok else "Mission échouée")
 
     # ── draw ─────────────────────────────────────────────────────
-    def draw(self, surface, planets, highways=None, dispatch_modes=None):
+    def draw(self, surface, planets, highways=None, dispatch_modes=None, open_fleet=None):
         if not self.visible or not self.planet:
             return
         p = self.planet
@@ -569,7 +569,7 @@ class PlanetUI:
                     pending_modes[_ms] = _mt
                 if self._transport_cfg:
                     pending_modes[self._transport_cfg["ship"]] = "transport"
-                self._draw_fleet(surface, pr, content_y, p, pending_modes)
+                self._draw_fleet(surface, pr, content_y, p, pending_modes, open_fleet=open_fleet)
 
             surface.set_clip(None)
 
@@ -1130,7 +1130,7 @@ class PlanetUI:
             return 130
         return 70
 
-    def _draw_fleet(self, surface, pr, y, p, pending_modes=None):
+    def _draw_fleet(self, surface, pr, y, p, pending_modes=None, open_fleet=None):
         pending_modes = pending_modes or {}
         from ship import (MISSION_IDLE, MISSION_TRAVEL, MISSION_DISCOVER, MISSION_MINE,
                           MISSION_RETURN, MISSION_NAVIGATE, MISSION_COMBAT)
@@ -1142,7 +1142,8 @@ class PlanetUI:
         f_sec_h = 0
         if fleet is not None:
             STATE_LABELS_F = {
-                "docked":    ("En orbite",   CYAN),
+                "docked":    ("À quai",      CYAN),
+                "orbiting":  ("En orbite",   CYAN),
                 "navigate":  ("En route",    ORANGE),
                 "returning": ("Retour",      GREEN),
                 "combat":    ("Au combat",   RED),
@@ -1154,7 +1155,8 @@ class PlanetUI:
             surface.blit(fleet_line, (pr.x + 12, y + 4))
             _mp = pygame.mouse.get_pos()
             manage_btn = Button((pr.x + pr.w - 92, y + 2, 76, 20),
-                                "Gérer", tooltip=f"fleet_manage:{fleet.id}")
+                                "Gérer", tooltip=f"fleet_manage:{fleet.id}",
+                                active=(open_fleet is fleet))
             manage_btn.handle_mouse(_mp); manage_btn.draw(surface)
             self._buttons.append(manage_btn)
             f_sec_h = 28
