@@ -446,6 +446,9 @@ class Ship:
                     self._pre_combat_dest = self._navigate_dest
                     self._target_enemy = enemy
                     self.state = MISSION_COMBAT
+                    dx = enemy.x - self.x; dy = enemy.y - self.y
+                    if math.hypot(dx, dy) > 0:
+                        self.angle = math.atan2(dy, dx)
                     return
 
             wx, wy = self._navigate_dest

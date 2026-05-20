@@ -1,5 +1,4 @@
 - recycleur; recylage flotte défenseuse
 
-- défenses planétaires
 
 - empilage : fighter (30)

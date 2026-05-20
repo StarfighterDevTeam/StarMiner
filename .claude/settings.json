@@ -2,9 +2,7 @@
   "permissions": {
     "allow": [
       "Bash(pytest tests/test_planet_discovery.py -v)",
-      "Bash(python -m pytest tests/test_ship_detection_range.py -v)",
-      "Bash(python -m pytest tests/ -v)",
-      "Bash(python -m pytest tests/ -v --tb=short)",
+      "Bash(python -m pytest *)",
       "Bash(tee test_output.log)",
       "Bash(pytest tests/ -v)",
       "Bash(timeout 8 python main.py)",
@@ -19,7 +17,8 @@
       "Skill(superpowers:subagent-driven-development:*)",
       "Bash(python -m pytest tests/test_fleet.py -v)",
       "Bash(python -c \"import sys; sys.path.insert\\(0,'c:/GitHub/Python/StarMiner'\\); import ast; ast.parse\\(open\\('ship.py'\\).read\\(\\)\\); print\\('OK'\\)\")",
-      "Bash(python -c \"from ui_fleet import FleetUI; f = FleetUI\\(\\); print\\('OK'\\)\")",
+      "Bash(python -c *)",
+      "Bash(python main.py *)",
       "Bash(python -c \"from ui_fleet_bar import FleetBar; print\\('OK'\\)\")",
       "Bash(python -c ' *)",
       "Bash(python -c \"from ui_planet import PlanetUI; u = PlanetUI\\(\\); print\\(hasattr\\(u, '_create_fleet_request'\\), hasattr\\(u, '_open_fleet_request'\\), hasattr\\(u, 'fleets'\\)\\); print\\('OK'\\)\")",

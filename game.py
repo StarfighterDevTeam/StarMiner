@@ -138,6 +138,25 @@ class Game:
             resources = {r: float(rng.randint(10, 80)) for r in res_names}
             self.debris_list.append(Debris(float(x), float(y), resources))
 
+    def _debug_spawn_enemies_at(self, wx, wy, count=10):
+        rng = random.Random()
+        faction = rng.choice(["krell", "vexari", "nexus"])
+        class _FakePlanet:
+            def __init__(self_, x, y):
+                self_.x = x; self_.y = y; self_.name = "Enemy"
+                self_.ships = []; self_.resources = {}; self_.id = -(len(self.enemy_ships) + 1000)
+        for i in range(count):
+            jitter_x = rng.uniform(-60, 60)
+            jitter_y = rng.uniform(-60, 60)
+            ex = max(500, min(WORLD_W - 500, wx + jitter_x))
+            ey = max(500, min(WORLD_H - 500, wy + jitter_y))
+            fp = _FakePlanet(ex + 9999, ey + 9999)  # home loin → is_docked=False → ciblable
+            s = Ship("Fighter", fp, faction=faction)
+            s.x = float(ex); s.y = float(ey)
+            s.fuel_remaining = s.fuel_capacity
+            s._debug_idle = True
+            self.enemy_ships.append(s)
+
     def _spawn_debris_from_ship(self, ship):
         resources = {}
         defn = SHIP_DEFS.get(ship.type, {})
@@ -201,7 +220,7 @@ class Game:
             if s._destroyed:
                 continue
             s.update(dt, self.planets, self.highways, all_ships)
-            if s.state == "idle":
+            if s.state == "idle" and not getattr(s, "_debug_idle", False):
                 s.fuel_remaining = s.fuel_capacity  # enemies magically refuel when idle
                 wx = random.randint(500, WORLD_W - 500)
                 wy = random.randint(500, WORLD_H - 500)
@@ -235,6 +254,11 @@ class Game:
 
             bldg._no_combat_timer = 0.0
             target = min(in_range, key=lambda s: math.hypot(s.x - planet.x, s.y - planet.y))
+            # All ships in range face the planet (their attacker)
+            for s in in_range:
+                dx = planet.x - s.x; dy = planet.y - s.y
+                if math.hypot(dx, dy) > 0:
+                    s.angle = math.atan2(dy, dx)
             dmg   = bldg.unit_damage()
             rate  = bldg.unit_rate()
 
@@ -299,10 +323,12 @@ class Game:
                     self._running = False
                 return
 
-            # F1/F2/F3: switch planet UI tab
-            if event.type == pygame.KEYDOWN and event.key in (pygame.K_F1, pygame.K_F2, pygame.K_F3):
+            # F1–F4: switch planet UI tab
+            if event.type == pygame.KEYDOWN and event.key in (
+                    pygame.K_F1, pygame.K_F2, pygame.K_F3, pygame.K_F4):
                 if self.ui.visible:
-                    self.ui.switch_tab(("buildings", "ships", "fleet")[event.key - pygame.K_F1])
+                    self.ui.switch_tab(
+                        ("buildings", "ships", "fleet", "defense")[event.key - pygame.K_F1])
                 continue
 
             # F5 debug: complete all production on selected planet
@@ -310,6 +336,12 @@ class Game:
                 if self.ui.visible and self.ui.planet:
                     self.ui.planet.debug_complete_all(self.ships)
                     self.ui.show_message("[DEBUG] Toutes les productions terminées")
+                continue
+
+            # E debug: spawn 10 enemy Fighters at mouse position
+            if event.type == pygame.KEYDOWN and event.key == pygame.K_e:
+                wx, wy = self.camera.screen_to_world(mx, my)
+                self._debug_spawn_enemies_at(wx, wy)
                 continue
 
             # Colony bar (tab toggle always works; rows blocked during mission mode)
