@@ -1,5 +1,3 @@
-- quick access to fleet
-
 - recycleur; recylage flotte défenseuse
 
 - défenses planétaires

@@ -212,6 +212,56 @@ class Game:
                 self._spawn_debris_from_ship(s)
         self.enemy_ships = [s for s in self.enemy_ships if not s._destroyed]
 
+    # ── planetary defense ────────────────────────────────────────
+    def _update_planet_defense(self, planet, dt):
+        defense_bldgs = [b for b in planet.buildings
+                         if b.category == "defense" and b.count > 0]
+        if not defense_bldgs:
+            return
+
+        for bldg in defense_bldgs:
+            fire_range = bldg.unit_range()
+
+            in_range = [s for s in self.enemy_ships
+                        if not s._destroyed
+                        and math.hypot(s.x - planet.x, s.y - planet.y) <= fire_range]
+
+            if not in_range:
+                bldg._no_combat_timer += dt
+                if bldg._no_combat_timer >= 3.0:
+                    bldg.full_recover()
+                    bldg._no_combat_timer = 0.0
+                continue
+
+            bldg._no_combat_timer = 0.0
+            target = min(in_range, key=lambda s: math.hypot(s.x - planet.x, s.y - planet.y))
+            dmg   = bldg.unit_damage()
+            rate  = bldg.unit_rate()
+
+            # Each alive unit fires independently
+            for i in range(len(bldg._fire_timers)):
+                bldg._fire_timers[i] -= dt
+                if bldg._fire_timers[i] <= 0:
+                    bldg._fire_timers[i] = 1.0 / rate
+                    if target and not target._destroyed:
+                        target.hp -= dmg
+                        if target.hp <= 0:
+                            target._destroyed = True
+                            remaining = [s for s in in_range if not s._destroyed]
+                            target = (min(remaining,
+                                         key=lambda s: math.hypot(s.x - planet.x, s.y - planet.y))
+                                      if remaining else None)
+
+            # Enemy combat ships retaliate with continuous DPS
+            for s in in_range:
+                if s._destroyed:
+                    continue
+                s_dmg  = getattr(s, "damage", 0)
+                s_rate = getattr(s, "fire_rate", 0)
+                s_rng  = getattr(s, "fire_range", 0)
+                if s_dmg > 0 and s_rate > 0 and math.hypot(s.x - planet.x, s.y - planet.y) <= s_rng:
+                    bldg.take_damage(s_dmg * s_rate * dt)
+
     # ── main loop ────────────────────────────────────────────────
     def run(self):
         while self._running:
@@ -527,6 +577,8 @@ class Game:
         all_ships = self.ships + self.enemy_ships
         for p in self.planets:
             p.update(dt, self.ships)
+            if p.colonized:
+                self._update_planet_defense(p, dt)
         for s in self.ships:
             s.update(dt, self.planets, self.highways, all_ships)
         self._update_enemies(dt, all_ships)

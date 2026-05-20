@@ -93,6 +93,8 @@ BUILDING_DEFS = {
     "Silo":            {"cost": {"iron": 120, "gold": 30},  "time": 25, "produces": {},                 "requires": [], "category": "storage"},
     "Fuel Tank":       {"cost": {"iron": 100, "silver": 40},"time": 30, "produces": {},                 "requires": [], "category": "storage"},
     "Shipyard":        {"cost": {"iron": 200, "gold": 50},  "time": 45, "produces": {},                 "requires": [], "category": "factory"},
+    "Tourelle Légère": {"cost": {"iron": 40, "gold": 15},               "time": 45,  "produces": {}, "category": "defense", "hp": 60,  "damage": 5,  "fire_range": 300, "fire_rate": 1.5, "shipyard_level": 0},
+    "Tourelle Lourde": {"cost": {"iron": 80, "gold": 40, "silver": 20}, "time": 120, "produces": {}, "category": "defense", "hp": 200, "damage": 22, "fire_range": 500, "fire_rate": 0.6, "shipyard_level": 2},
 }
 
 BUILDING_PLANET_TYPES = {
@@ -106,6 +108,8 @@ BUILDING_PLANET_TYPES = {
     "Silo":            ["rocky", "gas", "asteroid"],
     "Fuel Tank":       ["rocky", "gas", "asteroid"],
     "Shipyard":        ["rocky", "gas", "asteroid"],
+    "Tourelle Légère": ["rocky"],
+    "Tourelle Lourde": ["rocky"],
 }
 
 # Ships — shipyard_level = niveau minimal du chantier naval requis

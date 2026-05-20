@@ -1,5 +1,6 @@
 import pygame
 import random
+import math
 import os
 from constants import *
 from constants import QUEUE_MAX
@@ -138,6 +139,12 @@ class Planet:
                     b = self.get_building(entry["name"])
                     if b:
                         b.level_up()
+                elif BUILDING_DEFS[entry["name"]].get("category") == "defense":
+                    b = self.get_building(entry["name"])
+                    if b is None:
+                        b = Building(entry["name"])
+                        self.buildings.append(b)
+                    b.add_unit()
                 else:
                     self.buildings.append(Building(entry["name"]))
 
@@ -162,12 +169,22 @@ class Planet:
     # ── actions ──────────────────────────────────────────────────
     def can_build(self, bname):
         defn = BUILDING_DEFS[bname]
-        if bname in self.building_names(): return False, "Already built"
-        if any(e["name"] == bname for e in self.build_queue): return False, "Already in queue"
-        if len(self.build_queue) >= QUEUE_MAX: return False, "Queue full"
-        if self.type not in BUILDING_PLANET_TYPES[bname]: return False, "Wrong planet type"
+        is_defense = defn.get("category") == "defense"
+        if not is_defense and bname in self.building_names():
+            return False, "Already built"
+        if not is_defense and any(e["name"] == bname and not e.get("upgrade") for e in self.build_queue):
+            return False, "Already in queue"
+        if len(self.build_queue) >= QUEUE_MAX:
+            return False, "Queue full"
+        if self.type not in BUILDING_PLANET_TYPES.get(bname, []):
+            return False, "Wrong planet type"
+        if is_defense:
+            req_sy = defn.get("shipyard_level", 0)
+            if req_sy > 0 and self.shipyard_level < req_sy:
+                return False, f"Chantier Niv.{req_sy} requis"
         for res, amt in defn["cost"].items():
-            if self.resources.get(res, 0) < amt: return False, f"Need {amt} {res}"
+            if self.resources.get(res, 0) < amt:
+                return False, f"Need {amt} {res}"
         return True, ""
 
     def start_build(self, bname):
@@ -263,6 +280,12 @@ class Planet:
                 b = self.get_building(entry["name"])
                 if b:
                     b.level_up()
+            elif BUILDING_DEFS[entry["name"]].get("category") == "defense":
+                b = self.get_building(entry["name"])
+                if b is None:
+                    b = Building(entry["name"])
+                    self.buildings.append(b)
+                b.add_unit()
             else:
                 self.buildings.append(Building(entry["name"]))
         while self.ship_queue:
@@ -301,6 +324,49 @@ class Planet:
         # Home marker
         if self.is_home and camera.zoom >= 0.4:
             pygame.draw.circle(surface, GOLD, (sx, sy - half - 6), max(3, int(4 * camera.zoom)))
+
+        # Defense turret icons
+        if self.colonized and camera.zoom >= 0.3:
+            self._draw_defenses(surface, sx, sy, half)
+
+    def _draw_defenses(self, surface, sx, sy, half):
+        """Draw small turret icons in a ring around the planet (screen coords)."""
+        _TURRET_STYLES = {
+            "Tourelle Légère": (CYAN,   "triangle"),
+            "Tourelle Lourde": (ORANGE, "diamond"),
+        }
+        icons = []
+        for b in self.buildings:
+            if b.category == "defense" and b.count > 0:
+                color, shape = _TURRET_STYLES.get(b.name, (WHITE, "triangle"))
+                icons.extend([(color, shape)] * min(b.count, 5))
+
+        if not icons:
+            return
+
+        ring_r = half + 11
+        n = len(icons)
+        icon_s = 4
+
+        for i, (color, shape) in enumerate(icons):
+            angle = -math.pi / 2 + i * (2 * math.pi / n)
+            ix = int(sx + ring_r * math.cos(angle))
+            iy = int(sy + ring_r * math.sin(angle))
+            if shape == "triangle":
+                pts = [(ix, iy - icon_s), (ix - icon_s, iy + icon_s), (ix + icon_s, iy + icon_s)]
+            else:
+                pts = [(ix, iy - icon_s), (ix + icon_s, iy), (ix, iy + icon_s), (ix - icon_s, iy)]
+            pygame.draw.polygon(surface, color, pts)
+
+        # Label if stacks exceed what's shown
+        total = sum(b.count for b in self.buildings if b.category == "defense" and b.count > 0)
+        if total > 10:
+            try:
+                f = pygame.font.SysFont("consolas", 9)
+            except Exception:
+                f = pygame.font.Font(None, 11)
+            lbl = f.render(f"×{total}", True, WHITE)
+            surface.blit(lbl, (sx + ring_r - 2, sy - 6))
 
     def draw_selected(self, surface, camera):
         sx, sy = camera.world_to_screen(self.x, self.y)

@@ -69,9 +69,10 @@ class PlanetUI:
         self._navigate_request = None  # combat ship requesting navigate mode
         self._message = ""
         self._msg_timer = 0.0
-        self._build_scroll = 0
-        self._ship_scroll  = 0
-        self._fleet_scroll = 0
+        self._build_scroll   = 0
+        self._ship_scroll    = 0
+        self._fleet_scroll   = 0
+        self._defense_scroll = 0
         self._planet_tabs: dict = {}  # planet.id → last active tab
         self._sb_drag = None          # scrollbar drag state
         self._sb_info: dict = {}      # scrollbar geometry per tab (set during draw)
@@ -91,9 +92,10 @@ class PlanetUI:
         self._collect_request = None
         self._create_fleet_request = None
         self._open_fleet_request   = None
-        self._build_scroll = 0
-        self._ship_scroll  = 0
-        self._fleet_scroll = 0
+        self._build_scroll   = 0
+        self._ship_scroll    = 0
+        self._fleet_scroll   = 0
+        self._defense_scroll = 0
 
     def close(self):
         self.visible = False
@@ -168,6 +170,14 @@ class PlanetUI:
         mx, my = pygame.mouse.get_pos()
         pos = (mx, my)
 
+        # F1–F4 tab shortcuts
+        if event.type == pygame.KEYDOWN:
+            _fkey_tabs = {pygame.K_F1: "buildings", pygame.K_F2: "ships",
+                          pygame.K_F3: "fleet",     pygame.K_F4: "defense"}
+            if event.key in _fkey_tabs:
+                self.switch_tab(_fkey_tabs[event.key])
+                return True
+
         # Scrollbar drag: intercept motion/release before any other handler
         if self._sb_drag:
             if event.type == pygame.MOUSEBUTTONUP and event.button == 1:
@@ -216,7 +226,7 @@ class PlanetUI:
         # Tab buttons
         for tb in self._tab_btns:
             if tb.is_clicked(pos, event):
-                self._tab = tb.text.lower()
+                self._tab = tb.text   # already the internal key (lowercase / "defense")
                 if self.planet:
                     self._planet_tabs[self.planet.id] = self._tab
                 return True
@@ -235,6 +245,8 @@ class PlanetUI:
                 self._ship_scroll = max(0, self._ship_scroll - event.y)
             elif self._tab == "fleet":
                 self._fleet_scroll = max(0, self._fleet_scroll - event.y)
+            elif self._tab == "defense":
+                self._defense_scroll = max(0, self._defense_scroll - event.y)
             return True
 
         return self.panel_rect.collidepoint(pos)
@@ -535,18 +547,21 @@ class PlanetUI:
 
         if p.colonized:
             # ── Tabs ─────────────────────────────────────────────────
-            tabs = ["Buildings", "Ships", "Fleet"]
+            tabs = ["Buildings", "Ships", "Fleet", "Défense"]
             tab_w = pr.w // len(tabs)
             for i, tab in enumerate(tabs):
-                active = self._tab == tab.lower()
+                tab_key = "defense" if tab == "Défense" else tab.lower()
+                active = self._tab == tab_key
                 color = UI_BTN_HOV if active else UI_BTN
                 tr = pygame.Rect(pr.x + i * tab_w, y, tab_w, 24)
                 pygame.draw.rect(surface, color, tr)
                 pygame.draw.rect(surface, UI_BORDER, tr, 1)
-                tf = _font(11)
-                tt = tf.render(f"{tab} (F{i+1})", True, WHITE)
-                surface.blit(tt, tt.get_rect(center=tr.center))
-                tb = Button(tr, tab.lower(), tooltip="")
+                name_t = _font(9).render(tab, True, WHITE)
+                fkey_t = _font(8).render(f"(F{i+1})", True, (160, 170, 190))
+                cx = tr.x + tr.w // 2
+                surface.blit(name_t, name_t.get_rect(centerx=cx, y=tr.y + 3))
+                surface.blit(fkey_t, fkey_t.get_rect(centerx=cx, y=tr.y + 13))
+                tb = Button(tr, tab_key, tooltip="")
                 tb._hovered = False
                 self._tab_btns.append(tb)
             y += 26
@@ -570,6 +585,8 @@ class PlanetUI:
                 if self._transport_cfg:
                     pending_modes[self._transport_cfg["ship"]] = "transport"
                 self._draw_fleet(surface, pr, content_y, p, pending_modes, open_fleet=open_fleet)
+            elif self._tab == "defense":
+                self._draw_defense(surface, pr, content_y, p)
 
             surface.set_clip(None)
 
@@ -914,7 +931,8 @@ class PlanetUI:
         mouse_pos = pygame.mouse.get_pos()
 
         visible = [(bname, defn) for bname, defn in BUILDING_DEFS.items()
-                   if p.type in BUILDING_PLANET_TYPES.get(bname, [])]
+                   if p.type in BUILDING_PLANET_TYPES.get(bname, [])
+                   and defn.get("category") != "defense"]
 
         row_h = 46
         SB_W = 7
@@ -1426,6 +1444,94 @@ class PlanetUI:
         self._draw_scrollbar(surface, "fleet", "_fleet_scroll",
                              pr.x + pr.w - 6 - SB_W, y - 4, visible_h,
                              total_h, visible_h, scroll_offset, max_scroll)
+
+    def _draw_defense(self, surface, pr, y, p):
+        f  = _font(12)
+        sf = _font(10)
+        mouse_pos = pygame.mouse.get_pos()
+
+        if p.type != "rocky":
+            t = f.render("Défense indisponible sur ce type de planète", True, GRAY)
+            surface.blit(t, (pr.x + 12, y + 10))
+            return
+
+        SB_W      = 7
+        content_w = pr.w - 12 - SB_W - 2
+        right     = pr.x + 6 + content_w
+
+        defense_types = [(bname, defn) for bname, defn in BUILDING_DEFS.items()
+                         if defn.get("category") == "defense"
+                         and p.type in BUILDING_PLANET_TYPES.get(bname, [])]
+
+        row_h = 56
+        total_h  = len(defense_types) * row_h
+        visible_h = pr.y + pr.h - 202 - 14 - y
+        max_scroll = max(0, (total_h - visible_h) // row_h + 1)
+        self._defense_scroll = max(0, min(self._defense_scroll, max_scroll))
+        ry = y + 4 - self._defense_scroll * row_h
+
+        for bname, defn in defense_types:
+            if ry + row_h < y or ry > y + visible_h:
+                ry += row_h
+                continue
+
+            b   = p.get_building(bname)
+            cnt = b.count if b else 0
+            lvl = b.level if b else 0
+
+            bg_color  = (14, 30, 18) if cnt > 0 else (18, 18, 32)
+            brd_color = (50, 160, 80) if cnt > 0 else UI_BORDER
+            pygame.draw.rect(surface, bg_color,  (pr.x + 6, ry + 2, content_w, row_h - 4), border_radius=4)
+            pygame.draw.rect(surface, brd_color, (pr.x + 6, ry + 2, content_w, row_h - 4), 1, border_radius=4)
+
+            # Name + level + count
+            name_color = CYAN if cnt > 0 else GRAY
+            nt = f.render(bname, True, name_color)
+            surface.blit(nt, (pr.x + 12, ry + 6))
+            if b:
+                lvl_t = sf.render(f"Niv.{lvl}", True, GOLD)
+                surface.blit(lvl_t, (pr.x + 12 + nt.get_width() + 6, ry + 8))
+            cnt_t = sf.render(f"×{cnt}", True, (GREEN if cnt > 0 else GRAY))
+            surface.blit(cnt_t, (right - cnt_t.get_width() - 4, ry + 8))
+
+            # Stats line
+            mult   = b._upgrade_mult if b else 1.0
+            rng_v  = defn["fire_range"] * mult
+            dmg_v  = defn["damage"]     * mult
+            rate_v = defn["fire_rate"]  * mult
+            st_col = UI_TEXT if cnt > 0 else (60, 70, 90)
+            stats_t = sf.render(f"Portée:{int(rng_v)}  Dég:{dmg_v:.0f}  Cad:{rate_v:.2f}/s",
+                                True, st_col)
+            surface.blit(stats_t, (pr.x + 12, ry + 22))
+
+            # Buttons or lock message
+            req_sy = defn.get("shipyard_level", 0)
+            locked = req_sy > 0 and p.shipyard_level < req_sy
+
+            if locked:
+                lock_t = sf.render(f"[Chantier Naval Niv.{req_sy} requis]", True, (80, 80, 100))
+                surface.blit(lock_t, (pr.x + 12, ry + 38))
+            else:
+                can_add, _ = p.can_build(bname)
+                add_btn = Button((right - 162, ry + 33, 76, 16), "+ Ajouter",
+                                 enabled=can_add, tooltip=f"build:{bname}")
+                add_btn.handle_mouse(mouse_pos); add_btn.draw(surface)
+                self._buttons.append(add_btn)
+
+                if b and lvl < LEVEL_MAX:
+                    can_upg, _ = p.can_upgrade(bname)
+                    upg_btn = Button((right - 82, ry + 33, 76, 16), f"↑ Niv.{lvl + 1}",
+                                     enabled=can_upg, tooltip=f"upgrade:{bname}")
+                    upg_btn.handle_mouse(mouse_pos); upg_btn.draw(surface)
+                    self._buttons.append(upg_btn)
+                elif b and lvl >= LEVEL_MAX:
+                    surface.blit(sf.render("MAX", True, GOLD), (right - 30, ry + 37))
+
+            ry += row_h
+
+        self._draw_scrollbar(surface, "defense", "_defense_scroll",
+                             pr.x + pr.w - 6 - SB_W, y, visible_h,
+                             total_h, visible_h, self._defense_scroll * row_h, max_scroll)
 
     # ── Queue section (bottom of panel) ──────────────────────────
     def _draw_queue_section(self, surface, pr, y, p):
