@@ -1188,10 +1188,14 @@ class PlanetUI:
             surface.blit(t, (pr.x + 20, y + 10))
             return
 
+        free_ships = [s for s in p.ships if s.fleet is None]
+        if not free_ships:
+            return
+
         SB_W      = 7
         content_w = pr.w - 12 - SB_W - 2
         right     = pr.x + 6 + content_w
-        total_h   = sum(self._fleet_row_h(s) for s in p.ships)
+        total_h   = sum(self._fleet_row_h(s) for s in free_ships)
         visible_h = pr.y + pr.h - 202 - 14 - y
 
         max_scroll        = max(0, (total_h - visible_h) // 70 + 1)
@@ -1204,7 +1208,7 @@ class PlanetUI:
                            "highway": "Route", "recycle": "Recycler", "transport": "Transport"}
         mouse_pos = pygame.mouse.get_pos()
 
-        for ship in p.ships:
+        for ship in free_ships:
             rh = self._fleet_row_h(ship)
             if ry + rh < y or ry > y + visible_h:
                 ry += rh
