@@ -104,6 +104,43 @@ Depuis `MISSION_NAVIGATE`, toutes les autres missions peuvent être lancées dir
 
 ---
 
+## Flottes (`Fleet`)
+
+`fleet.py` — 1 flotte max par planète colonisée. `game.fleets: dict[int, Fleet]` keyed par `planet.id`.
+
+```
+Fleet
+  id, name, home, ships: list[Ship]
+  state: "docked" | "navigate" | "combat" | "returning"
+  _pre_combat_state: str
+  x, y: float  (barycentre des membres)
+  _nav_target: (wx, wy) | None
+```
+
+### Missions
+- `fleet.send_navigate(wx, wy, planets)` — navigation formation rigide, vitesse = min des membres
+- `fleet.send_return(planets)` — renvoie tous les membres vers `home`
+- `fleet.cancel()` — annule navigation / retour
+
+### Membership
+- `fleet.add_ship(ship)` — conditions : flotte docked, ship idle sur home, pas déjà en flotte
+- `fleet.remove_ship(ship)` — condition : flotte docked
+- `fleet.dissolve(game_fleets)` — retire tous les ships, supprime de `game.fleets`
+- `ship.fleet: Fleet | None` — référence à la flotte du vaisseau. Bloque `send_mine`, `send_explore`, `send_colonize`, `send_highway`, `send_transport`, `send_collect` si non-None
+- `ship._fleet_nav_speed` — vitesse override (px/s) injectée par `fleet.update()` pendant navigation
+
+### Vitesse de formation
+Chaque frame : `fleet.update()` set `s._fleet_nav_speed = min(s.speed)` sur les membres en MISSION_NAVIGATE.
+`ship.update()` lit `self.__dict__.get("_fleet_nav_speed", self.speed)` au lieu de `self.speed` dans la branche MISSION_NAVIGATE.
+
+### UI Flotte
+- `FleetUI` (`ui_fleet.py`) : panneau droit, activé via clic sur icône carte ou Fleet Bar. Boutons Naviguer / Annuler / Dissoudre. Nom cliquable pour renommer (TEXTINPUT inline). Renvoie `"fleet_navigate_requested"` / `"fleet_dissolve"` à `game.py`.
+- `FleetBar` (`ui_fleet_bar.py`) : barre horizontale bas d'écran, `BAR_Y = SCREEN_H - 44`, `START_X = 175` (à droite de la minimap). Cards cliquables → ouvrent FleetUI.
+- `game._pending_fleet_dispatch: Fleet | None` — même flow que `_pending_dispatch` pour les vaisseaux.
+- Onglet Fleet de `PlanetUI` : section en haut avec bouton "Gérer" (si flotte existe) ou "+ Créer une flotte". Ships membres : badge `[Flotte]` cyan, boutons de mission grisés.
+
+---
+
 ## Débris (`Debris`)
 
 Spawné dans `game.debris_list` :

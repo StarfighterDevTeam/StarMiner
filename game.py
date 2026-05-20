@@ -9,6 +9,9 @@ from ship import Ship
 from ui_planet import PlanetUI
 from ui_ship import ShipUI
 from ui_map import ColonyBar
+from fleet import Fleet
+from ui_fleet import FleetUI
+from ui_fleet_bar import FleetBar
 from ui_minimap import MiniMap
 from debris import Debris
 
@@ -45,6 +48,11 @@ class Game:
         self.ui.ship_upgrades = self.ship_upgrades
         self.ship_ui = ShipUI()
         self.colony_bar = ColonyBar()
+        self.fleets: dict     = {}
+        self.fleet_ui         = FleetUI()
+        self.fleet_bar        = FleetBar()
+        self._pending_fleet_dispatch = None
+        self.ui.fleets        = self.fleets
         self.minimap = MiniMap()
         self._hovered_planet = None
         self._hovered_ship = None
@@ -226,9 +234,13 @@ class Game:
             if event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
                 if self._pending_dispatch:
                     self._pending_dispatch = None
+                elif self._pending_fleet_dispatch:
+                    self._pending_fleet_dispatch = None
                 elif self.ui._mission_mode:
                     self.ui._mission_mode = None
                     self.ui.show_message("Mission annulée")
+                elif self.fleet_ui.visible:
+                    self.fleet_ui.close()
                 elif self.ship_ui.visible:
                     self.ship_ui.close()
                 elif self.ui.visible:
@@ -260,6 +272,30 @@ class Game:
                     if cb_action == 'center':
                         self.camera.x = cb_planet.x - SCREEN_W / (2 * self.camera.zoom)
                         self.camera.y = cb_planet.y - SCREEN_H / (2 * self.camera.zoom)
+                continue
+
+            # Fleet bar
+            fb_action, fb_fleet = self.fleet_bar.handle_event(event, self.fleets)
+            if fb_action == "select" and fb_fleet:
+                self.fleet_ui.open(fb_fleet)
+                self.ship_ui.close()
+                self.ui.close()
+                continue
+            if fb_action in ("select", "consume"):
+                continue
+
+            # Fleet UI events
+            fleet_ev = self.fleet_ui.handle_event(event)
+            if fleet_ev == "fleet_navigate_requested":
+                self._pending_fleet_dispatch = self.fleet_ui.fleet
+                continue
+            if fleet_ev == "fleet_dissolve":
+                f = self.fleet_ui.fleet
+                if f:
+                    f.dissolve(self.fleets)
+                self.fleet_ui.close()
+                continue
+            if fleet_ev:
                 continue
 
             # Minimap: intercept mouse events before navigate/mission modes
@@ -329,6 +365,29 @@ class Game:
                     self.camera.handle_event(event)
                 continue
 
+            # Fleet navigate mode: click map to send fleet to destination
+            if self._pending_fleet_dispatch:
+                if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                    on_ui = (
+                        (self.ui.visible and self.ui.panel_rect.collidepoint((mx, my)))
+                        or (self.ship_ui.visible and self.ship_ui.panel_rect.collidepoint((mx, my)))
+                        or (self.fleet_ui.visible and self.fleet_ui.panel_rect.collidepoint((mx, my)))
+                        or self.colony_bar.contains_point((mx, my), self.planets)
+                        or self.fleet_bar.contains_point((mx, my))
+                    )
+                    if not on_ui:
+                        wx, wy = self.camera.screen_to_world(mx, my)
+                        fleet  = self._pending_fleet_dispatch
+                        self._pending_fleet_dispatch = None
+                        ok = fleet.send_navigate(wx, wy, planets=self.planets)
+                        if not ok:
+                            self._hud_msg       = "Carburant insuffisant pour la flotte"
+                            self._hud_msg_timer = 3.0
+                    continue
+                else:
+                    self.camera.handle_event(event)
+                continue
+
             # Ship UI events (intercepts clicks on its panel)
             ship_ev = self.ship_ui.handle_event(event)
             if ship_ev == "navigate_requested":
@@ -358,6 +417,21 @@ class Game:
                 if self.ui._collect_request:
                     self._pending_dispatch = (self.ui._collect_request, "recycle")
                     self.ui._collect_request = None
+                if self.ui._create_fleet_request:
+                    p = self.ui._create_fleet_request
+                    self.ui._create_fleet_request = None
+                    if p.id not in self.fleets:
+                        new_fleet = Fleet(p)
+                        self.fleets[p.id] = new_fleet
+                        self.fleet_ui.open(new_fleet)
+                        self.ship_ui.close()
+                if self.ui._open_fleet_request:
+                    p = self.ui._open_fleet_request
+                    self.ui._open_fleet_request = None
+                    f = self.fleets.get(p.id)
+                    if f:
+                        self.fleet_ui.open(f)
+                        self.ship_ui.close()
                 continue
 
             # Mission target selection: only left-click picks a planet
@@ -374,8 +448,21 @@ class Game:
             # Camera (zoom, pan)
             self.camera.handle_event(event)
 
-            # Left click: ships take priority over planets
+            # Left click: fleets > ships > planets
             if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                if not self.fleet_bar.contains_point((mx, my)):
+                    clicked_fleet = next(
+                        (f for f in self.fleets.values()
+                         if f.is_clicked(mx, my, self.camera)), None)
+                    if clicked_fleet:
+                        if self.fleet_ui.visible and self.fleet_ui.fleet is clicked_fleet:
+                            self.fleet_ui.close()
+                        else:
+                            self.fleet_ui.open(clicked_fleet)
+                            self.ship_ui.close()
+                            self.ui.close()
+                        continue
+
                 clicked_ship = next(
                     (s for s in self.ships
                      if not s.is_docked and s.is_clicked(mx, my, self.camera)), None)
@@ -432,6 +519,11 @@ class Game:
         for s in self.ships:
             s.update(dt, self.planets, self.highways, all_ships)
         self._update_enemies(dt, all_ships)
+        for fleet in list(self.fleets.values()):
+            fleet.update(dt, self.planets, self.highways,
+                         self.ships + self.enemy_ships)
+        if self.fleet_ui.visible and self.fleet_ui.fleet not in self.fleets.values():
+            self.fleet_ui.close()
         self._update_discovered_planets()
         for s in self.ships:
             if s._destroyed:
@@ -448,23 +540,25 @@ class Game:
         in_planet_panel = self.ui.visible and self.ui.panel_rect.collidepoint(mx, my)
         in_ship_panel   = self.ship_ui.visible and self.ship_ui.panel_rect.collidepoint(mx, my)
         in_colony_bar   = self.colony_bar.contains_point((mx, my), self.planets)
+        in_fleet_panel  = self.fleet_ui.visible and self.fleet_ui.panel_rect.collidepoint(mx, my)
+        in_fleet_bar    = self.fleet_bar.contains_point((mx, my))
+        _any_ui = in_planet_panel or in_ship_panel or in_colony_bar or in_fleet_panel or in_fleet_bar
 
         # Ship hover (priority) — player ships first, then visible enemy ships
         self._hovered_ship = None
-        if not in_planet_panel and not in_ship_panel and not in_colony_bar:
+        if not _any_ui:
             self._hovered_ship = next(
                 (s for s in self.ships + list(self._visible_enemies)
                  if not s.is_docked and s.is_clicked(mx, my, self.camera)), None)
 
         # Planet hover (only if no ship hovered)
         self._hovered_planet = None
-        if not self._hovered_ship and not in_planet_panel and not in_ship_panel and not in_colony_bar:
+        if not self._hovered_ship and not _any_ui:
             self._hovered_planet = next(
                 (p for p in self.planets if p.discovered and p.is_clicked(mx, my, self.camera)), None)
 
         self._hovered_debris = None
-        if (not self._hovered_ship and not self._hovered_planet
-                and not in_planet_panel and not in_ship_panel and not in_colony_bar):
+        if not self._hovered_ship and not self._hovered_planet and not _any_ui:
             mx2, my2 = pygame.mouse.get_pos()
             self._hovered_debris = next(
                 (d for d in self._visible_debris if d.is_clicked(mx2, my2, self.camera)),
@@ -490,6 +584,8 @@ class Game:
             s.draw(self.screen, self.camera)
         for d in self._visible_debris:
             d.draw(self.screen, self.camera, hovered=(d is self._hovered_debris))
+        for fleet in self.fleets.values():
+            fleet.draw(self.screen, self.camera)
         if self.ship_ui.visible and self.ship_ui.ship:
             self.ship_ui.ship.draw_selected(self.screen, self.camera)
         if self._hovered_ship:
@@ -530,12 +626,18 @@ class Game:
             self.ui.draw_navigate_hover(self.screen, wx, wy, self.camera,
                                         self._pending_dispatch[0], planets=self.planets)
         self.ship_ui.draw(self.screen, dispatch_modes=dispatch_modes)
+        if self._pending_fleet_dispatch:
+            dispatch_modes[self._pending_fleet_dispatch] = "fleet_navigate"
+        self.fleet_bar.draw(self.screen, self.fleets,
+                            selected_fleet=self.fleet_ui.fleet if self.fleet_ui.visible else None)
+        self.fleet_ui.draw(self.screen, dispatch_modes=dispatch_modes)
         self.colony_bar.draw(self.screen, self.planets,
                              selected_planet=self.ui.planet if self.ui.visible else None,
                              mission_mode=bool(self.ui._mission_mode))
         self._draw_mission_dash()
         self._draw_navigate_overlay()
         self._draw_collect_overlay()
+        self._draw_fleet_navigate_overlay()
         self._draw_hud()
         self.minimap.draw(self.screen, self.planets, self.camera)
         pygame.display.flip()
@@ -646,6 +748,21 @@ class Game:
         surf.fill((10, 10, 30, 180))
         self.screen.blit(surf, (x - 10, 38))
         self.screen.blit(t, (x, 42))
+
+    def _draw_fleet_navigate_overlay(self):
+        if not self._pending_fleet_dispatch:
+            return
+        try:
+            font = pygame.font.SysFont("consolas", 14)
+        except Exception:
+            font = pygame.font.Font(None, 16)
+        msg = ">> Cliquez sur la carte pour définir la destination de la flotte  |  ESC pour annuler <<"
+        t = font.render(msg, True, CYAN)
+        x = SCREEN_W // 2 - t.get_width() // 2
+        surf = pygame.Surface((t.get_width() + 20, t.get_height() + 8), pygame.SRCALPHA)
+        surf.fill((10, 10, 30, 180))
+        self.screen.blit(surf, (x - 10, 56))
+        self.screen.blit(t, (x, 60))
 
     def _draw_detection_radii(self):
         """Gray semi-transparent circles showing detection range (SECTOR_SIZE) around player assets."""

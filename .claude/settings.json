@@ -14,7 +14,18 @@
       "Bash(python main.py)",
       "Skill(superpowers:brainstorming)",
       "Skill(superpowers:brainstorming:*)",
-      "mcp__vexp__run_pipeline"
+      "mcp__vexp__run_pipeline",
+      "Skill(superpowers:subagent-driven-development)",
+      "Skill(superpowers:subagent-driven-development:*)",
+      "Bash(python -m pytest tests/test_fleet.py -v)",
+      "Bash(python -c \"import sys; sys.path.insert\\(0,'c:/GitHub/Python/StarMiner'\\); import ast; ast.parse\\(open\\('ship.py'\\).read\\(\\)\\); print\\('OK'\\)\")",
+      "Bash(python -c \"from ui_fleet import FleetUI; f = FleetUI\\(\\); print\\('OK'\\)\")",
+      "Bash(python -c \"from ui_fleet_bar import FleetBar; print\\('OK'\\)\")",
+      "Bash(python -c ' *)",
+      "Bash(python -c \"from ui_planet import PlanetUI; u = PlanetUI\\(\\); print\\(hasattr\\(u, '_create_fleet_request'\\), hasattr\\(u, '_open_fleet_request'\\), hasattr\\(u, 'fleets'\\)\\); print\\('OK'\\)\")",
+      "Bash(python -c \"from ui_planet import PlanetUI; print\\('OK'\\)\")",
+      "Bash(python -c \"import pygame; pygame.init\\(\\); s = pygame.display.set_mode\\(\\(1280,800\\)\\); from game import Game; g = Game\\(s\\); print\\(hasattr\\(g,'fleet_ui'\\), hasattr\\(g,'fleet_bar'\\), hasattr\\(g,'fleets'\\), hasattr\\(g,'_pending_fleet_dispatch'\\)\\); print\\('OK'\\)\")",
+      "Bash(python -c \"import pygame; pygame.init\\(\\); s = pygame.display.set_mode\\(\\(1280,800\\)\\); from game import Game; g = Game\\(s\\); print\\('Game init OK'\\); pygame.quit\\(\\)\")"
     ]
   },
   "hooks": {

@@ -117,6 +117,7 @@ class Ship:
         self.fuel_capacity  = defn.get("fuel_capacity", None)  # None = no dedicated tank
         self.fuel_remaining = 0.0
         self.pnr_advisory   = defn.get("pnr_advisory", False)  # PNR shown but not enforced
+        self.fleet = None           # Fleet | None — set by Fleet.add_ship / remove_ship
 
         # Animation
         self._anim_timer = 0.0
@@ -182,6 +183,7 @@ class Ship:
 
     # ── missions ─────────────────────────────────────────────────
     def send_explore(self, target):
+        if self.fleet is not None: return False
         if self.state not in (MISSION_IDLE, MISSION_NAVIGATE): return False
         if self.state == MISSION_NAVIGATE:
             self._navigate_dest = None
@@ -193,6 +195,7 @@ class Ship:
         return True
 
     def send_mine(self, target):
+        if self.fleet is not None: return False
         if self.state not in (MISSION_IDLE, MISSION_NAVIGATE): return False
         if self.state == MISSION_NAVIGATE:
             self._navigate_dest = None
@@ -205,6 +208,7 @@ class Ship:
         return True
 
     def send_colonize(self, target):
+        if self.fleet is not None: return False
         if self.state not in (MISSION_IDLE, MISSION_NAVIGATE): return False
         if self.state == MISSION_NAVIGATE:
             self._navigate_dest = None
@@ -217,6 +221,7 @@ class Ship:
         return True
 
     def send_highway(self, target):
+        if self.fleet is not None: return False
         if self.state not in (MISSION_IDLE, MISSION_NAVIGATE): return False
         if self.state == MISSION_NAVIGATE:
             self._navigate_dest = None
@@ -240,6 +245,7 @@ class Ship:
                 planet.resources[res] = avail - amount
 
     def send_transport(self, target, outbound_res, inbound_res=None):
+        if self.fleet is not None: return False
         if self.state not in (MISSION_IDLE, MISSION_NAVIGATE): return False
         if self.state == MISSION_NAVIGATE:
             self._navigate_dest = None
@@ -258,6 +264,7 @@ class Ship:
         return True
 
     def send_collect(self, debris):
+        if self.fleet is not None: return False
         if self.state not in (MISSION_IDLE, MISSION_NAVIGATE): return False
         if self.capacity <= 0: return False
         if self.state == MISSION_NAVIGATE:
@@ -442,7 +449,7 @@ class Ship:
                     return
 
             wx, wy = self._navigate_dest
-            self._move_toward(wx, wy, dt, self.speed)
+            self._move_toward(wx, wy, dt, self.__dict__.get("_fleet_nav_speed", self.speed))
             dist = math.hypot(self.x - wx, self.y - wy)
             if dist < 5:
                 self.x = wx

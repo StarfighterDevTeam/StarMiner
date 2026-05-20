@@ -77,6 +77,9 @@ class PlanetUI:
         self._sb_info: dict = {}      # scrollbar geometry per tab (set during draw)
         self._transport_cfg   = None  # {"ship": Ship, "outbound": set, "inbound": set, "repeat": bool}
         self._collect_request = None  # Ship requesting collect mode (promoted by game.py)
+        self._create_fleet_request = None   # Planet | None — signal to game.py
+        self._open_fleet_request   = None   # Planet | None — signal to game.py
+        self.fleets: dict = {}              # shared ref from game.fleets
         self.ship_upgrades: dict = {}  # stype → level 1-10, set by game.py
 
     def open(self, planet):
@@ -86,6 +89,8 @@ class PlanetUI:
         self._mission_mode    = None
         self._transport_cfg   = None
         self._collect_request = None
+        self._create_fleet_request = None
+        self._open_fleet_request   = None
         self._build_scroll = 0
         self._ship_scroll  = 0
         self._fleet_scroll = 0
@@ -96,6 +101,8 @@ class PlanetUI:
         self._mission_mode    = None
         self._transport_cfg   = None
         self._collect_request = None
+        self._create_fleet_request = None
+        self._open_fleet_request   = None
         self._sb_drag = None
 
     @property
@@ -352,6 +359,11 @@ class PlanetUI:
             if ship:
                 self._collect_request = ship
                 self.show_message("Cliquez sur un débris visible pour le collecter")
+
+        elif tag == "fleet_create":
+            self._create_fleet_request = p
+        elif tag.startswith("fleet_manage:"):
+            self._open_fleet_request = p
 
         elif tag.startswith(("explore:", "mine:", "colonize:", "highway:")):
             mtype, sid = tag.split(":")
@@ -1124,6 +1136,49 @@ class PlanetUI:
                           MISSION_RETURN, MISSION_NAVIGATE, MISSION_COMBAT)
         f = _font(12)
         sf = _font(10)
+
+        # ── Fleet section ─────────────────────────────────────────
+        fleet = self.fleets.get(p.id)
+        f_sec_h = 0
+        if fleet is not None:
+            STATE_LABELS_F = {
+                "docked":    ("En orbite",   CYAN),
+                "navigate":  ("En route",    ORANGE),
+                "returning": ("Retour",      GREEN),
+                "combat":    ("Au combat",   RED),
+            }
+            slabel, scolor = STATE_LABELS_F.get(fleet.state, (fleet.state, WHITE))
+            fleet_line = f.render(
+                f"{fleet.name}  —  {slabel}  [{len(fleet.ships)} vaisseaux]",
+                True, scolor)
+            surface.blit(fleet_line, (pr.x + 12, y + 4))
+            _mp = pygame.mouse.get_pos()
+            manage_btn = Button((pr.x + pr.w - 92, y + 2, 76, 20),
+                                "Gérer", tooltip=f"fleet_manage:{fleet.id}")
+            manage_btn.handle_mouse(_mp); manage_btn.draw(surface)
+            self._buttons.append(manage_btn)
+            f_sec_h = 28
+        else:
+            eligible = any(
+                s.state == "idle" and s.fleet is None
+                and "navigate" in SHIP_DEFS.get(s.type, {}).get("missions", [])
+                for s in p.ships
+            )
+            if eligible:
+                _mp = pygame.mouse.get_pos()
+                create_btn = Button((pr.x + 12, y + 2, 160, 20),
+                                    "+ Créer une flotte",
+                                    tooltip="fleet_create")
+                create_btn.handle_mouse(_mp); create_btn.draw(surface)
+                self._buttons.append(create_btn)
+                f_sec_h = 28
+
+        y += f_sec_h
+        if f_sec_h > 0:
+            pygame.draw.line(surface, (40, 80, 120),
+                             (pr.x + 8, y), (pr.x + pr.w - 8, y))
+            y += 4
+
         if not p.ships:
             t = f.render("Aucun vaisseau assigné", True, GRAY)
             surface.blit(t, (pr.x + 20, y + 10))
@@ -1165,6 +1220,15 @@ class PlanetUI:
             if here:
                 badge = sf.render("ANCRÉ", True, (80, 220, 120))
                 surface.blit(badge, (right - badge.get_width() - 4, ry + 8))
+                _docked_badge_w = badge.get_width()
+            else:
+                _docked_badge_w = 0
+            if ship.fleet is not None:
+                fleet_badge = sf.render("[Flotte]", True, CYAN)
+                badge_x = right - fleet_badge.get_width() - 4
+                if _docked_badge_w > 0:
+                    badge_x -= _docked_badge_w + 8
+                surface.blit(fleet_badge, (badge_x, ry + 8))
 
             # Line 2 – status
             if here:
@@ -1199,7 +1263,7 @@ class PlanetUI:
                     st_col = CYAN
             surface.blit(sf.render(st_txt, True, st_col), (pr.x + 12, ry + 22))
 
-            if ship.state in (MISSION_IDLE, MISSION_NAVIGATE):
+            if ship.state in (MISSION_IDLE, MISSION_NAVIGATE) and ship.fleet is None:
                 missions = SHIP_DEFS[ship.type]["missions"]
                 display_missions = [m for m in missions if m not in ("recycle", "transport")]
                 n = len(display_missions)
