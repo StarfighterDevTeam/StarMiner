@@ -69,6 +69,7 @@ class Game:
         self.enemy_ships = []
         self._spawn_initial_enemies()
         self._visible_enemies = set()
+        self._planet_known_ranges: dict = {}  # planet.id → (max_fire_range, faction_relationship)
         self._hud_msg = ""
         self._hud_msg_timer = 0.0
         self.debris_list: list = []
@@ -599,6 +600,63 @@ class Game:
                     break
         return visible
 
+    # ── planet threat knowledge ──────────────────────────────────
+    def _update_planet_known_ranges(self):
+        """Persist last-known max weapon range per discovered planet (fog-of-war memory)."""
+        for planet in self.planets:
+            if not planet.discovered:
+                continue
+            if planet.colonized:
+                max_r = max(
+                    (b.unit_range() for b in planet.buildings
+                     if b.category == "defense" and b.count > 0),
+                    default=0.0)
+                if max_r > 0:
+                    self._planet_known_ranges[planet.id] = (max_r, "player")
+                else:
+                    self._planet_known_ranges.pop(planet.id, None)
+            else:
+                for s in self._visible_enemies:
+                    if s.fire_range <= 0:
+                        continue
+                    if math.hypot(s.x - planet.x, s.y - planet.y) > SECTOR_SIZE:
+                        continue
+                    cur_r, _ = self._planet_known_ranges.get(planet.id, (0.0, None))
+                    if s.fire_range >= cur_r:
+                        self._planet_known_ranges[planet.id] = (s.fire_range, s.faction_relationship)
+
+    def _draw_planet_threat_circles(self):
+        if not self._planet_known_ranges:
+            return
+        _REL_COLOR = {"player": GREEN, "ally": CYAN, "enemy": RED, "neutral": ORANGE}
+        surf = pygame.Surface((int(SCREEN_W), int(SCREEN_H)), pygame.SRCALPHA)
+        N = 72  # 36 dashes + 36 gaps
+        drew = False
+        for planet in self.planets:
+            if not planet.discovered:
+                continue
+            entry = self._planet_known_ranges.get(planet.id)
+            if not entry:
+                continue
+            max_range, rel = entry
+            if max_range <= 0:
+                continue
+            r_px = int(max_range * self.camera.zoom)
+            if r_px < 6:
+                continue
+            base = _REL_COLOR.get(rel, GRAY)
+            color_a = (*base, 110)
+            sx, sy = self.camera.world_to_screen(planet.x, planet.y)
+            for i in range(0, N, 2):  # even indices = dashes
+                a1 = 2 * math.pi * i / N
+                a2 = 2 * math.pi * (i + 1) / N
+                pygame.draw.line(surf, color_a,
+                                 (int(sx + r_px * math.cos(a1)), int(sy + r_px * math.sin(a1))),
+                                 (int(sx + r_px * math.cos(a2)), int(sy + r_px * math.sin(a2))), 1)
+            drew = True
+        if drew:
+            self.screen.blit(surf, (0, 0))
+
     # ── update ───────────────────────────────────────────────────
     def _update(self, dt):
         self.space_map.update(dt)
@@ -630,6 +688,7 @@ class Game:
         self._visible_enemies = self._compute_visible_enemies()
         self._visible_debris  = self._compute_visible_debris()
         self.debris_list = [d for d in self.debris_list if not d._collected]
+        self._update_planet_known_ranges()
 
         mx, my = pygame.mouse.get_pos()
         in_planet_panel = self.ui.visible and self.ui.panel_rect.collidepoint(mx, my)
@@ -668,6 +727,7 @@ class Game:
         self._draw_detection_radii()
         for p in self.planets:
             p.draw(self.screen, self.camera)
+        self._draw_planet_threat_circles()
         selected_planet = self.ui.planet if self.ui.visible else None
         if selected_planet and selected_planet is not self._hovered_planet:
             selected_planet.draw_selected(self.screen, self.camera)
