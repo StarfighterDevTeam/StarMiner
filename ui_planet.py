@@ -377,7 +377,7 @@ class PlanetUI:
         elif tag.startswith("fleet_manage:"):
             self._open_fleet_request = p
 
-        elif tag.startswith(("explore:", "mine:", "colonize:", "highway:")):
+        elif tag.startswith(("explore:", "mine:", "colonize:", "highway:", "attack:")):
             mtype, sid = tag.split(":")
             ship = next((s for s in p.ships if s.id == int(sid)), None)
             if ship:
@@ -387,7 +387,8 @@ class PlanetUI:
                 else:
                     self._mission_mode = (mtype, ship)
                     verb = {"explore": "explorer", "mine": "miner",
-                            "colonize": "coloniser", "highway": "relier en autoroute"}.get(mtype, mtype)
+                            "colonize": "coloniser", "highway": "relier en autoroute",
+                            "attack": "attaquer"}.get(mtype, mtype)
                     self.show_message(f"Cliquez sur une planète à {verb}")
 
     def dispatch_mission(self, target_planet, highways=None):
@@ -433,6 +434,14 @@ class PlanetUI:
             if highways is not None and frozenset({ship.home.id, target_planet.id}) in highways:
                 self.show_message(f"Autoroute déjà existante vers {target_planet.name}")
                 return
+        if mtype == "attack":
+            if not target_planet.colonized:
+                self.show_message("La planète doit être colonisée")
+                return
+            rel = FACTION_DEFS.get(getattr(target_planet, "faction", None), {}).get("relationship")
+            if rel not in ("enemy", "neutral"):
+                self.show_message("Impossible d'attaquer cette planète")
+                return
         if mtype == "transport":
             if target_planet is ship.home:
                 self.show_message("Même planète — choisissez une autre")
@@ -461,6 +470,10 @@ class PlanetUI:
             ok = ship.send_mine(target_planet)
         elif mtype == "highway":
             ok = ship.send_highway(target_planet)
+        elif mtype == "attack":
+            ok = ship.send_attack(target_planet)
+            self.show_message(f"Attaque → {target_planet.name}" if ok else "Mission échouée")
+            return
         else:
             ok = ship.send_colonize(target_planet)
         if mtype == "colonize" and ok:
@@ -643,6 +656,11 @@ class PlanetUI:
             if not planet.colonized: return False
             if planet is ship.home:  return False
             return ship.has_fuel_for("transport", planet)
+        elif mtype == "attack":
+            if not planet.colonized: return False
+            rel = FACTION_DEFS.get(getattr(planet, "faction", None), {}).get("relationship")
+            if rel not in ("enemy", "neutral"): return False
+            return ship.has_fuel_for("attack", planet)
         return ship.has_fuel_for(mtype, planet)
 
     def draw_mission_hover(self, surface, planet, camera, highways=None, navigate_ship=None):
@@ -674,7 +692,14 @@ class PlanetUI:
 
         lines = []
         error = None
-        if planet is ship.home and not (mtype == "navigate" and not ship.is_docked):
+        if mtype == "attack":
+            if not planet.colonized:
+                error = ("Planète non colonisée", RED)
+            else:
+                rel = FACTION_DEFS.get(getattr(planet, "faction", None), {}).get("relationship")
+                if rel not in ("enemy", "neutral"):
+                    error = ("Cible invalide (planète alliée)", ORANGE)
+        elif planet is ship.home and not (mtype == "navigate" and not ship.is_docked):
             error = ("Même planète", RED)
         elif mtype == "explore" and planet.explored:
             error = (f"{planet.name} déjà explorée", ORANGE)
@@ -731,6 +756,18 @@ class PlanetUI:
 
         if error:
             lines.append(error)
+        elif mtype == "attack":
+            lines.append((f"Aller   : {_fmt_time(travel_to)}", UI_TEXT))
+            lines.append((f"Retour  : {_fmt_time(travel_back)}", UI_TEXT))
+            lines.append((f"Total   : {_fmt_time(total)}", CYAN))
+            lines.append(fuel_line)
+            target_res = [(r, v) for r, v in planet.resources.items() if v > 0]
+            if target_res:
+                lines.append(("Stocks cible :", GRAY))
+                for res, v in target_res:
+                    lines.append((f"  {res[:3].upper()} : {int(v)}", RESOURCE_COLORS.get(res, WHITE)))
+            else:
+                lines.append(("Stocks vides", (80, 80, 80)))
         elif mtype == "highway":
             lines.append((f"Aller   : {_fmt_time(travel_to)}", UI_TEXT))
             lines.append((f"Total   : {_fmt_time(total)}", CYAN))
@@ -763,8 +800,10 @@ class PlanetUI:
             "highway":  "Autoroute",
             "navigate": "Naviguer",
             "transport":"Transport",
+            "attack":   "Attaquer",
         }
         title_txt = _MTYPE_TITLES.get(mtype, mtype.capitalize())
+        _hover_color = RED if mtype == "attack" else ORANGE
 
         f_title = _font(12)
         f = _font(11)
@@ -786,9 +825,9 @@ class PlanetUI:
 
         panel = pygame.Surface((w, h), pygame.SRCALPHA)
         panel.fill((8, 12, 28, 210))
-        pygame.draw.rect(panel, ORANGE, (0, 0, w, h), 1, border_radius=4)
+        pygame.draw.rect(panel, _hover_color, (0, 0, w, h), 1, border_radius=4)
         surface.blit(panel, (tx, ty))
-        surface.blit(f_title.render(title_txt, True, ORANGE), (tx + pad, ty + pad // 2))
+        surface.blit(f_title.render(title_txt, True, _hover_color), (tx + pad, ty + pad // 2))
         pygame.draw.line(surface, (60, 80, 110),
                          (tx + pad, ty + title_h), (tx + w - pad, ty + title_h))
         for i, (txt, color) in enumerate(lines):
@@ -1223,7 +1262,8 @@ class PlanetUI:
 
         _MISSION_LABELS = {"explore": "Explorer", "mine": "Extraire",
                            "colonize": "Coloniser", "navigate": "Naviguer",
-                           "highway": "Route", "recycle": "Recycler", "transport": "Transport"}
+                           "highway": "Route", "recycle": "Recycler", "transport": "Transport",
+                           "attack": "Attaquer"}
         mouse_pos = pygame.mouse.get_pos()
 
         for ship in free_ships:

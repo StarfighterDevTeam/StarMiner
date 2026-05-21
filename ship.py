@@ -126,7 +126,7 @@ class Ship:
     # ── fuel helpers ─────────────────────────────────────────────
     def fuel_cost(self, mtype, target):
         dist = math.hypot(self.home.x - target.x, self.home.y - target.y)
-        return dist * self.fuel_rate * (2.0 if mtype in ("mine", "transport") else 1.0)
+        return dist * self.fuel_rate * (2.0 if mtype in ("mine", "transport", "attack") else 1.0)
 
     def has_fuel_for(self, mtype, target):
         return self.fuel_remaining >= self.fuel_cost(mtype, target)
@@ -278,6 +278,22 @@ class Ship:
         self._mission_type   = "collect"
         return True
 
+    def send_attack(self, target):
+        if self.fleet is not None: return False
+        if self.state not in (MISSION_IDLE, MISSION_NAVIGATE): return False
+        if self.state == MISSION_NAVIGATE:
+            self._navigate_dest = None
+            self._dock_planet = None
+        if self.capacity <= 0: return False
+        if not target.colonized: return False
+        rel = FACTION_DEFS.get(getattr(target, "faction", None), {}).get("relationship")
+        if rel not in ("enemy", "neutral"): return False
+        if self.fuel_remaining < self.fuel_cost("attack", target): return False
+        self.target_planet = target
+        self.state = MISSION_TRAVEL
+        self._mission_type = "attack"
+        return True
+
     def send_navigate(self, wx, wy, dock_planet=None, planets=None):
         if self.state not in (MISSION_IDLE, MISSION_NAVIGATE, MISSION_COMBAT): return False
         if not self.pnr_advisory:
@@ -388,6 +404,18 @@ class Ship:
                         self.home.ships.remove(self)
                     self._destroyed = True
                     return
+                elif self._mission_type == "attack":
+                    space = self.capacity - sum(self.cargo.values())
+                    if space > 0:
+                        res_avail = [(r, v) for r, v in self.target_planet.resources.items() if v > 0]
+                        if res_avail:
+                            per_res = space / len(res_avail)
+                            for res, avail in res_avail:
+                                take = min(per_res, avail)
+                                if take > 0:
+                                    self.cargo[res] = self.cargo.get(res, 0) + take
+                                    self.target_planet.resources[res] -= take
+                    self.state = MISSION_RETURN
                 elif self._mission_type == "highway":
                     if highways is not None:
                         highways.add(frozenset({self.home.id, self.target_planet.id}))
@@ -579,6 +607,8 @@ class Ship:
             dot_color = self.faction_color
         elif self.state == MISSION_TRAVEL and mission_type == "colonize":
             dot_color = GOLD
+        elif self.state == MISSION_TRAVEL and mission_type == "attack":
+            dot_color = RED
         elif self.state == MISSION_COMBAT:
             dot_color = RED
         elif self.state == MISSION_NAVIGATE:
@@ -641,7 +671,8 @@ class Ship:
         # Travel line toward actual destination
         if self.state in (MISSION_TRAVEL, MISSION_MINE) and self.target_planet:
             tx, ty = camera.world_to_screen(self.target_planet.x, self.target_planet.y)
-            pygame.draw.line(surface, (*CYAN, 60), (sx, sy), (tx, ty), 1)
+            _tl_color = (*RED, 60) if mission_type == "attack" else (*CYAN, 60)
+            pygame.draw.line(surface, _tl_color, (sx, sy), (tx, ty), 1)
         elif (self.state == MISSION_TRAVEL and self._mission_type == "collect"
               and self._collect_debris):
             tx, ty = camera.world_to_screen(

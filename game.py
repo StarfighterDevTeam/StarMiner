@@ -640,7 +640,7 @@ class Game:
                 self.ship_ui.close()
 
     def _apply_rect_selection(self, start, end):
-        """Select the first element found in the drag rectangle (ship > planet > debris)."""
+        """Select the first element found in the drag rectangle (fleet > ship > planet)."""
         x1 = min(start[0], end[0])
         y1 = min(start[1], end[1])
         x2 = max(start[0], end[0])
@@ -648,6 +648,17 @@ class Game:
 
         def _in(sx, sy):
             return x1 <= sx <= x2 and y1 <= sy <= y2
+
+        for f in self.fleets.values():
+            sx, sy = self.camera.world_to_screen(f.x, f.y)
+            if _in(sx, sy):
+                if self.fleet_ui.visible and self.fleet_ui.fleet is f:
+                    self.fleet_ui.close()
+                else:
+                    self.fleet_ui.open(f)
+                    self.ship_ui.close()
+                    self.ui.close()
+                return
 
         for s in self.ships:
             if s.is_docked or s.fleet is not None:
