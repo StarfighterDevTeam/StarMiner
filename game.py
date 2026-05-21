@@ -78,6 +78,8 @@ class Game:
         self._visible_debris: set = set()
         self._hovered_debris = None
         self._spawn_initial_debris()
+        self._sel_drag_start: tuple | None = None
+        self._sel_dragging: bool = False
 
     # ── enemy management ─────────────────────────────────────────
     def _assign_faction_homes(self):
@@ -328,6 +330,8 @@ class Game:
 
             # ESC: cancel active modes in priority order
             if event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
+                self._sel_drag_start = None
+                self._sel_dragging = False
                 if self._pending_dispatch:
                     self._pending_dispatch = None
                 elif self._pending_fleet_dispatch:
@@ -561,47 +565,114 @@ class Game:
             # Camera (zoom, pan)
             self.camera.handle_event(event)
 
-            # Left click: fleets > ships > planets
+            # Left click: drag tracking → rect selection on release, single click if no drag
             if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
-                if not self.fleet_bar.contains_point((mx, my)):
-                    clicked_fleet = next(
-                        (f for f in self.fleets.values()
-                         if f.is_clicked(mx, my, self.camera)), None)
-                    if clicked_fleet:
-                        if self.fleet_ui.visible and self.fleet_ui.fleet is clicked_fleet:
-                            self.fleet_ui.close()
-                        else:
-                            self.fleet_ui.open(clicked_fleet)
-                            self.ship_ui.close()
-                            self.ui.close()
-                        continue
+                on_ui = (
+                    (self.ui.visible and self.ui.panel_rect.collidepoint((mx, my))) or
+                    (self.ship_ui.visible and self.ship_ui.panel_rect.collidepoint((mx, my))) or
+                    self.colony_bar.contains_point((mx, my), self.planets) or
+                    (self.fleet_ui.visible and self.fleet_ui.panel_rect.collidepoint((mx, my))) or
+                    self.fleet_bar.contains_point((mx, my)) or
+                    self.minimap.rect.collidepoint((mx, my))
+                )
+                if not on_ui:
+                    self._sel_drag_start = (mx, my)
+                    self._sel_dragging = False
 
-                clicked_ship = next(
-                    (s for s in self.ships
-                     if not s.is_docked and s.fleet is None
-                     and s.is_clicked(mx, my, self.camera)), None)
-                if clicked_ship:
-                    if self.ship_ui.visible and self.ship_ui.ship is clicked_ship:
-                        self.ship_ui.close()
-                    else:
-                        self.ship_ui.open(clicked_ship)
-                        self.ui.close()
-                        self.fleet_ui.close()
-                    continue
+            elif event.type == pygame.MOUSEMOTION and self._sel_drag_start:
+                if pygame.mouse.get_pressed()[0]:
+                    if abs(mx - self._sel_drag_start[0]) > 5 or abs(my - self._sel_drag_start[1]) > 5:
+                        self._sel_dragging = True
+                else:
+                    self._sel_drag_start = None
+                    self._sel_dragging = False
 
-                clicked_planet = next(
-                    (p for p in self.planets if p.discovered and p.is_clicked(mx, my, self.camera)), None)
-                if clicked_planet:
-                    if self.ui.visible and self.ui.planet is clicked_planet:
-                        self.ui.close()
+            elif event.type == pygame.MOUSEBUTTONUP and event.button == 1:
+                if self._sel_drag_start is not None:
+                    if self._sel_dragging:
+                        self._apply_rect_selection(self._sel_drag_start, (mx, my))
                     else:
-                        self.ui.open(clicked_planet)
-                        self.ship_ui.close()
+                        self._apply_single_selection(mx, my)
+                    self._sel_drag_start = None
+                    self._sel_dragging = False
 
         keys = pygame.key.get_pressed()
         self.camera.update(keys)
         self._time_scale = 10.0 if keys[pygame.K_KP_PLUS] else 1.0
         self._debug_fog_off = bool(keys[pygame.K_r])
+
+    # ── selection helpers ────────────────────────────────────────
+    def _apply_single_selection(self, mx, my):
+        """Same as the old MOUSEBUTTONDOWN click logic: fleet > ship > planet."""
+        if not self.fleet_bar.contains_point((mx, my)):
+            clicked_fleet = next(
+                (f for f in self.fleets.values()
+                 if f.is_clicked(mx, my, self.camera)), None)
+            if clicked_fleet:
+                if self.fleet_ui.visible and self.fleet_ui.fleet is clicked_fleet:
+                    self.fleet_ui.close()
+                else:
+                    self.fleet_ui.open(clicked_fleet)
+                    self.ship_ui.close()
+                    self.ui.close()
+                return
+
+        clicked_ship = next(
+            (s for s in self.ships
+             if not s.is_docked and s.fleet is None
+             and s.is_clicked(mx, my, self.camera)), None)
+        if clicked_ship:
+            if self.ship_ui.visible and self.ship_ui.ship is clicked_ship:
+                self.ship_ui.close()
+            else:
+                self.ship_ui.open(clicked_ship)
+                self.ui.close()
+                self.fleet_ui.close()
+            return
+
+        clicked_planet = next(
+            (p for p in self.planets if p.discovered and p.is_clicked(mx, my, self.camera)), None)
+        if clicked_planet:
+            if self.ui.visible and self.ui.planet is clicked_planet:
+                self.ui.close()
+            else:
+                self.ui.open(clicked_planet)
+                self.ship_ui.close()
+
+    def _apply_rect_selection(self, start, end):
+        """Select the first element found in the drag rectangle (ship > planet > debris)."""
+        x1 = min(start[0], end[0])
+        y1 = min(start[1], end[1])
+        x2 = max(start[0], end[0])
+        y2 = max(start[1], end[1])
+
+        def _in(sx, sy):
+            return x1 <= sx <= x2 and y1 <= sy <= y2
+
+        for s in self.ships:
+            if s.is_docked or s.fleet is not None:
+                continue
+            sx, sy = self.camera.world_to_screen(s.x, s.y)
+            if _in(sx, sy):
+                if self.ship_ui.visible and self.ship_ui.ship is s:
+                    self.ship_ui.close()
+                else:
+                    self.ship_ui.open(s)
+                    self.ui.close()
+                    self.fleet_ui.close()
+                return
+
+        for p in self.planets:
+            if not p.discovered:
+                continue
+            sx, sy = self.camera.world_to_screen(p.x, p.y)
+            if _in(sx, sy):
+                if self.ui.visible and self.ui.planet is p:
+                    self.ui.close()
+                else:
+                    self.ui.open(p)
+                    self.ship_ui.close()
+                return
 
     # ── fog of war ───────────────────────────────────────────────
     def _compute_visible_enemies(self):
@@ -720,6 +791,13 @@ class Game:
         in_fleet_bar    = self.fleet_bar.contains_point((mx, my))
         _any_ui = in_planet_panel or in_ship_panel or in_colony_bar or in_fleet_panel or in_fleet_bar
 
+        # Suppress hover while drag-selecting
+        if self._sel_dragging:
+            self._hovered_ship = None
+            self._hovered_planet = None
+            self._hovered_debris = None
+            return
+
         # Ship hover (priority) — player ships first, then visible enemy ships
         self._hovered_ship = None
         if not _any_ui:
@@ -776,6 +854,8 @@ class Game:
         _range_ship = _pending_ship or (self.ship_ui.ship if self.ship_ui.visible else None)
         if _range_ship:
             self._draw_navigate_range_circle(_range_ship)
+
+        self._draw_selection_rect()
 
         dispatch_modes = {}
         if self._pending_dispatch:
@@ -981,6 +1061,22 @@ class Game:
             surf = pygame.Surface((SCREEN_W, SCREEN_H), pygame.SRCALPHA)
             pygame.draw.line(surf, (*GOLD, 80), (ax, ay), (bx, by), 2)
             self.screen.blit(surf, (0, 0))
+
+    def _draw_selection_rect(self):
+        if not self._sel_dragging or not self._sel_drag_start:
+            return
+        mx, my = pygame.mouse.get_pos()
+        x1 = min(self._sel_drag_start[0], mx)
+        y1 = min(self._sel_drag_start[1], my)
+        x2 = max(self._sel_drag_start[0], mx)
+        y2 = max(self._sel_drag_start[1], my)
+        w, h = x2 - x1, y2 - y1
+        if w < 2 or h < 2:
+            return
+        fill = pygame.Surface((w, h), pygame.SRCALPHA)
+        fill.fill((100, 180, 255, 25))
+        self.screen.blit(fill, (x1, y1))
+        pygame.draw.rect(self.screen, (120, 190, 255), (x1, y1, w, h), 1)
 
     def _draw_hud(self):
         try:

@@ -220,6 +220,17 @@ Spawné dans `game.debris_list` :
 
 ---
 
+## Sélection
+
+- **Clic simple** (gauche, déplacement < 5 px) : sélectionne le premier élément sous le curseur par priorité **flotte > vaisseau > planète**.
+- **Sélection rectangulaire** (drag gauche > 5 px) : affiche un rectangle semi-transparent bleu ; au relâché, sélectionne le premier élément dont le centre-écran est dans le rectangle, par priorité **vaisseau > planète** (les débris n'ont pas de panneau de sélection).
+- Le hover est supprimé pendant le drag.
+- ESC annule le drag en cours.
+- Implémentation dans `game.py` : `_sel_drag_start`, `_sel_dragging`, `_apply_single_selection()`, `_apply_rect_selection()`, `_draw_selection_rect()`.
+- La sélection rectangulaire n'est pas déclenchée si le clic démarre sur un panneau UI (PlanetUI, ShipUI, ColonyBar, FleetUI, FleetBar, MiniMap).
+
+---
+
 ## Patterns importants
 
 - `_font(size)` — toujours utiliser cette fonction (ui_common.py) pour les polices ; tente Consolas, sinon fallback pygame.
