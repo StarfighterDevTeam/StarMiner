@@ -822,7 +822,7 @@ class Game:
         self._draw_collect_overlay()
         self._draw_fleet_navigate_overlay()
         self._draw_hud()
-        self.minimap.draw(self.screen, self.planets, self.camera)
+        self.minimap.draw(self.screen, self.planets, self.camera, fog_off=self._debug_fog_off)
         pygame.display.flip()
 
     def _draw_mission_dash(self):

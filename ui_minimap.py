@@ -79,16 +79,16 @@ class MiniMap:
 
     # ── draw ──────────────────────────────────────────────────────
 
-    def draw(self, surface, planets, camera):
+    def draw(self, surface, planets, camera, fog_off=False):
         # Background
         bg = pygame.Surface((_W, _H), pygame.SRCALPHA)
         bg.fill(_BG)
         surface.blit(bg, (_X, _Y))
         pygame.draw.rect(surface, _BORDER, self.rect, 1)
 
-        # Planet dots (discovered only), clipped to minimap bounds
+        # Planet dots (fog_off → all, otherwise discovered only), clipped to minimap bounds
         for p in planets:
-            if not p.discovered:
+            if not p.discovered and not fog_off:
                 continue
             mx, my = self._to_mini(p.x, p.y)
             if _X <= mx <= _X + _W and _Y <= my <= _Y + _H:

@@ -318,7 +318,7 @@ class Planet:
             label = self.name if revealed else "???"
             if self.colonized:
                 name_color = GREEN
-            elif revealed and self.faction:
+            elif self.faction and self.faction != "player":
                 rel = FACTION_DEFS.get(self.faction, {}).get("relationship", "neutral")
                 name_color = RELATIONSHIP_COLORS.get(rel, WHITE)
             else:
