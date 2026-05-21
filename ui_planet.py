@@ -435,9 +435,6 @@ class PlanetUI:
                 self.show_message(f"Autoroute déjà existante vers {target_planet.name}")
                 return
         if mtype == "attack":
-            if not target_planet.colonized:
-                self.show_message("La planète doit être colonisée")
-                return
             rel = FACTION_DEFS.get(getattr(target_planet, "faction", None), {}).get("relationship")
             if rel not in ("enemy", "neutral"):
                 self.show_message("Impossible d'attaquer cette planète")
@@ -657,7 +654,6 @@ class PlanetUI:
             if planet is ship.home:  return False
             return ship.has_fuel_for("transport", planet)
         elif mtype == "attack":
-            if not planet.colonized: return False
             rel = FACTION_DEFS.get(getattr(planet, "faction", None), {}).get("relationship")
             if rel not in ("enemy", "neutral"): return False
             return ship.has_fuel_for("attack", planet)
@@ -693,12 +689,9 @@ class PlanetUI:
         lines = []
         error = None
         if mtype == "attack":
-            if not planet.colonized:
-                error = ("Planète non colonisée", RED)
-            else:
-                rel = FACTION_DEFS.get(getattr(planet, "faction", None), {}).get("relationship")
-                if rel not in ("enemy", "neutral"):
-                    error = ("Cible invalide (planète alliée)", ORANGE)
+            rel = FACTION_DEFS.get(getattr(planet, "faction", None), {}).get("relationship")
+            if rel not in ("enemy", "neutral"):
+                error = ("Cible invalide (planète alliée ou inconnue)", ORANGE)
         elif planet is ship.home and not (mtype == "navigate" and not ship.is_docked):
             error = ("Même planète", RED)
         elif mtype == "explore" and planet.explored:

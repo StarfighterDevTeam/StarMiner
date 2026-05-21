@@ -41,8 +41,10 @@ class FleetUI:
         if self._add_mode and fleet.state == "docked":
             h += 24 + max(1, len(self._get_addable(fleet))) * 18
         h += 24 + 28            # Ajouter btn + mission buttons
-        if fleet.state == "orbiting":
+        if fleet.state in ("orbiting", "navigate"):
             h += 28             # Retour base button
+        if fleet.state in ("docked", "orbiting", "navigate") and any(s.can_do("attack") for s in fleet.ships):
+            h += 28             # Attaquer button
         return h
 
     @property
@@ -76,34 +78,25 @@ class FleetUI:
         for btn in self._buttons:
             if btn.is_clicked(pos, event):
                 tip = btn.tooltip
-                if tip == "fleet_navigate_request":
-                    return "fleet_navigate_requested"
                 if tip == "fleet_cancel":
                     fleet.cancel()
-                    return True
-                if tip == "fleet_return":
-                    return "fleet_return_requested"
-                if tip == "fleet_dissolve":
-                    return "fleet_dissolve"
-                if tip == "fleet_add_toggle":
+                elif tip == "fleet_add_toggle":
                     self._add_mode = not self._add_mode
-                    return True
-                if tip == "fleet_rename":
+                elif tip == "fleet_rename":
                     self._renaming = True
                     self._name_buf = fleet.name
-                    return True
-                if tip.startswith("fleet_remove:"):
+                elif tip.startswith("fleet_remove:"):
                     sid = int(tip.split(":")[1])
                     s = next((s for s in fleet.ships if s.id == sid), None)
                     if s:
                         fleet.remove_ship(s)
-                    return True
-                if tip.startswith("fleet_add_ship:"):
+                elif tip.startswith("fleet_add_ship:"):
                     sid = int(tip.split(":")[1])
                     s = next((s for s in fleet.home.ships if s.id == sid), None)
                     if s:
                         fleet.add_ship(s)
-                    return True
+                elif btn.signal:
+                    return btn.signal
                 return True
 
         if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
@@ -219,11 +212,13 @@ class FleetUI:
         y += 24
 
         # ── Mission buttons ───────────────────────────────────────
-        nav_active = (dispatch_modes or {}).get(fleet) == "fleet_navigate"
-        if fleet.state in ("docked", "orbiting", "navigate"):
+        dm = dispatch_modes or {}
+        nav_active = dm.get(fleet) == "fleet_navigate"
+        if fleet.state in ("docked", "orbiting", "navigate", "returning"):
             nav_btn = Button((pr.x + 12, y + 2, 120, 22), "Naviguer",
                              tooltip="fleet_navigate_request",
-                             enabled=bool(fleet.ships), active=nav_active)
+                             enabled=bool(fleet.ships), active=nav_active,
+                             signal="fleet_navigate_requested")
             nav_btn.handle_mouse((mx, my)); nav_btn.draw(surface)
             self._buttons.append(nav_btn)
         else:
@@ -234,17 +229,28 @@ class FleetUI:
 
         if fleet.state == "docked":
             dissolve_btn = Button((pr.x + pr.w - 132, y + 2, 120, 22), "Dissoudre",
-                                  tooltip="fleet_dissolve")
+                                  tooltip="fleet_dissolve", signal="fleet_dissolve")
             dissolve_btn.handle_mouse((mx, my)); dissolve_btn.draw(surface)
             self._buttons.append(dissolve_btn)
-        elif fleet.state == "navigate":
+        elif fleet.state in ("navigate", "returning"):
             cancel_btn = Button((pr.x + pr.w - 132, y + 2, 120, 22), "Annuler",
                                 tooltip="fleet_cancel")
             cancel_btn.handle_mouse((mx, my)); cancel_btn.draw(surface)
             self._buttons.append(cancel_btn)
 
-        if fleet.state == "orbiting":
-            ret_btn = Button((pr.x + 12, y + 30, 120, 22), "Retour base",
-                             tooltip="fleet_return", enabled=bool(fleet.ships))
+        extra_y = y + 30
+        if fleet.state in ("orbiting", "navigate"):
+            ret_btn = Button((pr.x + 12, extra_y, 120, 22), "Retour base",
+                             tooltip="fleet_return", enabled=bool(fleet.ships),
+                             signal="fleet_return_requested")
             ret_btn.handle_mouse((mx, my)); ret_btn.draw(surface)
             self._buttons.append(ret_btn)
+            extra_y += 28
+
+        if fleet.state in ("docked", "orbiting", "navigate") and any(s.can_do("attack") for s in fleet.ships):
+            atk_active = dm.get(fleet) == "fleet_attack"
+            atk_btn = Button((pr.x + 12, extra_y, 120, 22), "Attaquer",
+                             tooltip="fleet_attack_request", enabled=bool(fleet.ships),
+                             active=atk_active, signal="fleet_attack_requested")
+            atk_btn.handle_mouse((mx, my)); atk_btn.draw(surface)
+            self._buttons.append(atk_btn)

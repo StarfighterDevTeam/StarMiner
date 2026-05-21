@@ -83,15 +83,22 @@ class Game:
 
     # ── enemy management ─────────────────────────────────────────
     def _assign_faction_homes(self):
-        """Pick one real planet per enemy/neutral faction as their home base."""
+        """Pick one real planet per enemy/neutral faction as their home base.
+        Distance tiers ensure variety: close / medium / far / very far."""
         home = self.planets[0]
-        factions = ["krell", "vexari", "nexus", "neutral"]
-        n = len(factions)
+        # (faction, target_distance_px)
+        faction_targets = [
+            ("krell",   2200),
+            ("vexari",  5500),
+            ("nexus",   9500),
+            ("neutral", 15000),
+        ]
+        n = len(faction_targets)
         assigned = []
         homes = {}
 
-        for i, faction in enumerate(factions):
-            target_angle = 2 * math.pi * i / n  # spread uniformly
+        for i, (faction, target_dist) in enumerate(faction_targets):
+            target_angle = 2 * math.pi * i / n
             best = None
             best_score = -float("inf")
             for p in self.planets[1:]:
@@ -100,17 +107,18 @@ class Game:
                 dx = p.x - home.x
                 dy = p.y - home.y
                 d = math.hypot(dx, dy)
-                if d < 3500:
+                if d < 800:
                     continue
                 adiff = abs((math.atan2(dy, dx) - target_angle + math.pi) % (2 * math.pi) - math.pi)
-                score = d * 0.001 - adiff  # favour far + in-sector
+                # Prefer planets near target distance + in the right angular sector
+                score = -abs(d - target_dist) * 0.001 - adiff * 0.5
                 if score > best_score:
                     best_score = score
                     best = p
 
-            if best is None:  # fallback: farthest unassigned
+            if best is None:  # fallback: closest to target distance
                 cands = [p for p in self.planets[1:] if p not in assigned]
-                best = max(cands, key=lambda p: math.hypot(p.x - home.x, p.y - home.y)) if cands else None
+                best = min(cands, key=lambda p: abs(math.hypot(p.x - home.x, p.y - home.y) - target_dist)) if cands else None
 
             if best:
                 assigned.append(best)
@@ -399,7 +407,12 @@ class Game:
             _fleet_ui_fleet_before = self.fleet_ui.fleet if self.fleet_ui.visible else None
             fleet_ev = None if self._pending_fleet_dispatch else self.fleet_ui.handle_event(event)
             if fleet_ev == "fleet_navigate_requested":
-                self._pending_fleet_dispatch = self.fleet_ui.fleet
+                self._pending_fleet_dispatch = (self.fleet_ui.fleet, "navigate")
+                continue
+            if fleet_ev == "fleet_attack_requested":
+                self._pending_fleet_dispatch = (self.fleet_ui.fleet, "attack")
+                self._hud_msg = "Cliquez sur une planète ennemie à attaquer  |  ESC pour annuler"
+                self._hud_msg_timer = 4.0
                 continue
             if fleet_ev == "fleet_return_requested":
                 f = self.fleet_ui.fleet
@@ -493,13 +506,29 @@ class Game:
                         or self.fleet_bar.contains_point((mx, my))
                     )
                     if not on_ui:
-                        wx, wy = self.camera.screen_to_world(mx, my)
-                        fleet  = self._pending_fleet_dispatch
-                        self._pending_fleet_dispatch = None
-                        ok = fleet.send_navigate(wx, wy, planets=self.planets)
-                        if not ok:
-                            self._hud_msg       = "Carburant insuffisant pour la flotte"
-                            self._hud_msg_timer = 3.0
+                        fleet, fmode = self._pending_fleet_dispatch
+                        if fmode == "navigate":
+                            wx, wy = self.camera.screen_to_world(mx, my)
+                            self._pending_fleet_dispatch = None
+                            ok = fleet.send_navigate(wx, wy, planets=self.planets)
+                            if not ok:
+                                self._hud_msg       = "Carburant insuffisant pour la flotte"
+                                self._hud_msg_timer = 3.0
+                        elif fmode == "attack":
+                            target = self._hovered_planet
+                            if target:
+                                rel = FACTION_DEFS.get(getattr(target, "faction", None), {}).get("relationship")
+                                if rel in ("enemy", "neutral"):
+                                    self._pending_fleet_dispatch = None
+                                    ok = fleet.send_attack(target)
+                                    if ok:
+                                        self._hud_msg = f"Flotte → attaque {target.name}"
+                                    else:
+                                        self._hud_msg = "Aucun vaisseau capable ou carburant insuffisant"
+                                    self._hud_msg_timer = 3.0
+                                else:
+                                    self._hud_msg = "Cible invalide"
+                                    self._hud_msg_timer = 2.0
                     continue
                 else:
                     self.camera.handle_event(event)
@@ -519,6 +548,12 @@ class Game:
                 continue
             if ship_ev == "collect_requested":
                 self._pending_dispatch = (self.ship_ui.ship, "recycle")
+                continue
+            if ship_ev == "attack_requested":
+                _s = self.ship_ui.ship
+                self.ui._mission_mode = ("attack", _s)
+                self._hud_msg = "Cliquez sur une planète ennemie à attaquer"
+                self._hud_msg_timer = 3.0
                 continue
             if ship_ev:
                 continue
@@ -886,8 +921,19 @@ class Game:
                 _ms = SHIP_DEFS.get(_s.type, {}).get("missions", [])
                 if "navigate" in _ms:
                     _hint_ship = _s
-            self.ui.draw_mission_hover(self.screen, self._hovered_planet, self.camera, self.highways,
-                                       navigate_ship=_hint_ship)
+            # Fleet attack pending: inject mission mode temporarily for the hover hint
+            _fleet_atk_ship = None
+            if self._pending_fleet_dispatch and self._pending_fleet_dispatch[1] == "attack":
+                _pf_fleet = self._pending_fleet_dispatch[0]
+                _fleet_atk_ship = next((s for s in _pf_fleet.ships if s.can_do("attack")), None)
+            if _fleet_atk_ship:
+                _saved_mode = self.ui._mission_mode
+                self.ui._mission_mode = ("attack", _fleet_atk_ship)
+                self.ui.draw_mission_hover(self.screen, self._hovered_planet, self.camera, self.highways)
+                self.ui._mission_mode = _saved_mode
+            else:
+                self.ui.draw_mission_hover(self.screen, self._hovered_planet, self.camera, self.highways,
+                                           navigate_ship=_hint_ship)
         elif self._hovered_debris and not self._hovered_planet:
             _debris_ship = (_pending_ship
                             or (self.ship_ui.ship if self.ship_ui.visible else None))
@@ -901,7 +947,8 @@ class Game:
                                         self._pending_dispatch[0], planets=self.planets)
         self.ship_ui.draw(self.screen, dispatch_modes=dispatch_modes)
         if self._pending_fleet_dispatch:
-            dispatch_modes[self._pending_fleet_dispatch] = "fleet_navigate"
+            _pf_fleet, _pf_mode = self._pending_fleet_dispatch
+            dispatch_modes[_pf_fleet] = f"fleet_{_pf_mode}"
         self.fleet_bar.draw(self.screen, self.fleets,
                             selected_fleet=self.fleet_ui.fleet if self.fleet_ui.visible else None)
         self.fleet_ui.draw(self.screen, dispatch_modes=dispatch_modes)
@@ -1030,7 +1077,11 @@ class Game:
             font = pygame.font.SysFont("consolas", 14)
         except Exception:
             font = pygame.font.Font(None, 16)
-        msg = ">> Cliquez sur la carte pour définir la destination de la flotte  |  ESC pour annuler <<"
+        _, _pf_mode = self._pending_fleet_dispatch
+        if _pf_mode == "attack":
+            msg = ">> Cliquez sur une planète ennemie à attaquer  |  ESC pour annuler <<"
+        else:
+            msg = ">> Cliquez sur la carte pour définir la destination de la flotte  |  ESC pour annuler <<"
         t = font.render(msg, True, CYAN)
         x = SCREEN_W // 2 - t.get_width() // 2
         surf = pygame.Surface((t.get_width() + 20, t.get_height() + 8), pygame.SRCALPHA)

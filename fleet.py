@@ -1,7 +1,7 @@
 # fleet.py
 import math
 import pygame
-from constants import CYAN, SHIP_DEFS
+from constants import CYAN, SHIP_DEFS, FACTION_DEFS
 from ui_common import _font
 
 
@@ -53,7 +53,7 @@ class Fleet:
 
     # ── missions ─────────────────────────────────────────────────
     def send_navigate(self, wx, wy, planets=None):
-        if self.state not in ("docked", "orbiting", "navigate") or not self.ships:
+        if self.state not in ("docked", "orbiting", "navigate", "returning") or not self.ships:
             return False
         planets = planets or []
         for s in self.ships:
@@ -78,6 +78,22 @@ class Fleet:
         self.state = "returning"
         return True
 
+    def send_attack(self, target):
+        if self.state not in ("docked", "orbiting", "navigate") or not self.ships:
+            return False
+        rel = FACTION_DEFS.get(getattr(target, "faction", None), {}).get("relationship")
+        if rel not in ("enemy", "neutral"):
+            return False
+        ok = False
+        for s in self.ships:
+            if s.send_attack(target):
+                ok = True
+        if not ok:
+            return False
+        self.state = "navigate"
+        self._nav_target = (target.x, target.y)
+        return True
+
     def cancel(self):
         if self.state not in ("navigate", "returning", "combat"):
             return False
@@ -89,6 +105,8 @@ class Fleet:
                 s._target_enemy     = None
                 s.state             = "idle"
                 s.__dict__.pop("_fleet_nav_speed", None)
+            elif getattr(s, "_mission_type", None) == "attack":
+                s.cancel_mission()
         self.state       = "orbiting"
         self._nav_target = None
         return True

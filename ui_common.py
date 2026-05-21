@@ -20,12 +20,13 @@ def _fmt_time(secs):
 
 
 class Button:
-    def __init__(self, rect, text, enabled=True, tooltip="", active=False):
+    def __init__(self, rect, text, enabled=True, tooltip="", active=False, signal=None):
         self.rect = pygame.Rect(rect)
         self.text = text
         self.enabled = enabled
         self.tooltip = tooltip
         self.active = active
+        self.signal = signal
         self._hovered = False
 
     def draw(self, surface):

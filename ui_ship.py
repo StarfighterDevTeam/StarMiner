@@ -39,6 +39,8 @@ class ShipUI:
             h += 26  # recycle row
         if s.can_do("explore"):
             h += 26  # explore row
+        if s.can_do("attack"):
+            h += 26  # attack row
 
         if s.capacity > 0:
             h += 8   # separator before cargo
@@ -78,10 +80,8 @@ class ShipUI:
                     self.ship.cancel_mission()
                 elif btn.tooltip == "toggle_repeat" and self.ship:
                     self.ship.repeat = not self.ship.repeat
-                elif btn.tooltip == "navigate_request" and self.ship:
-                    return "navigate_requested"
-                elif btn.tooltip == "collect_request" and self.ship:
-                    return "collect_requested"
+                elif btn.signal:
+                    return btn.signal
                 return True
         if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
             if not self.panel_rect.collidepoint(pos):
@@ -281,7 +281,9 @@ class ShipUI:
             has_nav_cancel = s.state in (MISSION_NAVIGATE, MISSION_COMBAT)
             bx = pr.x + 10
             bw = 140
-            nav_btn = Button((bx, y + 2, bw, 20), "Naviguer", tooltip="navigate_request")
+            nav_btn = Button((bx, y + 2, bw, 20), "Naviguer", tooltip="navigate_request",
+                             active=((dispatch_modes or {}).get(s) == "navigate"),
+                             signal="navigate_requested")
             nav_btn.handle_mouse(pygame.mouse.get_pos())
             nav_btn.draw(surface)
             self._buttons.append(nav_btn)
@@ -295,7 +297,8 @@ class ShipUI:
 
         if s.can_do("recycle"):
             recycle_btn = Button((pr.x + 10, y + 2, 140, 20), "Recycler",
-                                 tooltip="collect_request", active=((dispatch_modes or {}).get(s) == "recycle"))
+                                 tooltip="collect_request", active=((dispatch_modes or {}).get(s) == "recycle"),
+                                 signal="collect_requested")
             recycle_btn.handle_mouse(pygame.mouse.get_pos())
             recycle_btn.draw(surface)
             self._buttons.append(recycle_btn)
@@ -303,10 +306,20 @@ class ShipUI:
 
         if s.can_do("explore"):
             explore_btn = Button((pr.x + 10, y + 2, 140, 20), "Explorer",
-                                 tooltip="explore_request", active=((dispatch_modes or {}).get(s) == "explore"))
+                                 tooltip="explore_request", active=((dispatch_modes or {}).get(s) == "explore"),
+                                 signal="explore_requested")
             explore_btn.handle_mouse(pygame.mouse.get_pos())
             explore_btn.draw(surface)
             self._buttons.append(explore_btn)
+            y += 26
+
+        if s.can_do("attack"):
+            attack_btn = Button((pr.x + 10, y + 2, 140, 20), "Attaquer",
+                                tooltip="attack_request", active=((dispatch_modes or {}).get(s) == "attack"),
+                                signal="attack_requested")
+            attack_btn.handle_mouse(pygame.mouse.get_pos())
+            attack_btn.draw(surface)
+            self._buttons.append(attack_btn)
             y += 26
 
         # ── Cargo ────────────────────────────────────────────────

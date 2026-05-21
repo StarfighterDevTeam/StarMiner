@@ -279,13 +279,11 @@ class Ship:
         return True
 
     def send_attack(self, target):
-        if self.fleet is not None: return False
         if self.state not in (MISSION_IDLE, MISSION_NAVIGATE): return False
         if self.state == MISSION_NAVIGATE:
             self._navigate_dest = None
             self._dock_planet = None
         if self.capacity <= 0: return False
-        if not target.colonized: return False
         rel = FACTION_DEFS.get(getattr(target, "faction", None), {}).get("relationship")
         if rel not in ("enemy", "neutral"): return False
         if self.fuel_remaining < self.fuel_cost("attack", target): return False
