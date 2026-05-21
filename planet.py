@@ -51,6 +51,7 @@ class Planet:
         self.discovered = is_home
         self.is_home = is_home
         self.habitable = is_home or habitable
+        self.faction: str | None = "player" if is_home else None
 
         # Resources
         self.resources = {r: 0.0 for r in RESOURCE_NAMES}
@@ -293,8 +294,8 @@ class Planet:
             self._spawn_ship(entry["ship_type"], all_ships)
 
     # ── draw ─────────────────────────────────────────────────────
-    def draw(self, surface, camera):
-        if not self.discovered:
+    def draw(self, surface, camera, force=False):
+        if not self.discovered and not force:
             return
         sx, sy = camera.world_to_screen(self.x, self.y)
         draw_size = max(10, int(self.size * camera.zoom))
@@ -303,7 +304,8 @@ class Planet:
         if sx + half < 0 or sx - half > SCREEN_W: return
         if sy + half < 0 or sy - half > SCREEN_H: return
 
-        img_path = PLANET_IMGS[self.type] if self.explored else UNKNOWN_IMGS[self.type]
+        revealed = self.explored or force
+        img_path = PLANET_IMGS[self.type] if revealed else UNKNOWN_IMGS[self.type]
         img = _load_img(img_path, draw_size)
         surface.blit(img, (sx - half, sy - half))
 
@@ -313,17 +315,24 @@ class Planet:
                 font = pygame.font.SysFont("consolas", 11)
             except Exception:
                 font = pygame.font.Font(None, 13)
-            label = self.name if self.explored else "???"
+            label = self.name if revealed else "???"
             if self.colonized:
                 name_color = GREEN
+            elif revealed and self.faction:
+                rel = FACTION_DEFS.get(self.faction, {}).get("relationship", "neutral")
+                name_color = RELATIONSHIP_COLORS.get(rel, WHITE)
             else:
                 name_color = WHITE
             txt = font.render(label, True, name_color)
             surface.blit(txt, (sx - txt.get_width() // 2, sy + half + 4))
 
-        # Home marker
+        # Home marker (player gold dot, or faction-colored dot for faction homes)
         if self.is_home and camera.zoom >= 0.4:
             pygame.draw.circle(surface, GOLD, (sx, sy - half - 6), max(3, int(4 * camera.zoom)))
+        elif self.faction and self.faction != "player" and revealed and camera.zoom >= 0.4:
+            rel = FACTION_DEFS.get(self.faction, {}).get("relationship", "neutral")
+            fcolor = RELATIONSHIP_COLORS.get(rel, WHITE)
+            pygame.draw.circle(surface, fcolor, (sx, sy - half - 6), max(3, int(4 * camera.zoom)))
 
         # Defense turret icons
         if self.colonized and camera.zoom >= 0.3:

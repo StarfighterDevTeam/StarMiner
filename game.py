@@ -57,6 +57,7 @@ class Game:
         self._hovered_planet = None
         self._hovered_ship = None
         self._time_scale = 1.0
+        self._debug_fog_off = False
         self._running = True
         self._pending_dispatch = None   # (ship, mtype) | None — ship waiting for a map/target click
 
@@ -67,6 +68,7 @@ class Game:
         self.camera.y = home.y - SCREEN_H / (2 * self.camera.zoom)
 
         self.enemy_ships = []
+        self._faction_homes = self._assign_faction_homes()
         self._spawn_initial_enemies()
         self._visible_enemies = set()
         self._planet_known_ranges: dict = {}  # planet.id → (max_fire_range, faction_relationship)
@@ -78,10 +80,50 @@ class Game:
         self._spawn_initial_debris()
 
     # ── enemy management ─────────────────────────────────────────
+    def _assign_faction_homes(self):
+        """Pick one real planet per enemy/neutral faction as their home base."""
+        home = self.planets[0]
+        factions = ["krell", "vexari", "nexus", "neutral"]
+        n = len(factions)
+        assigned = []
+        homes = {}
+
+        for i, faction in enumerate(factions):
+            target_angle = 2 * math.pi * i / n  # spread uniformly
+            best = None
+            best_score = -float("inf")
+            for p in self.planets[1:]:
+                if p in assigned:
+                    continue
+                dx = p.x - home.x
+                dy = p.y - home.y
+                d = math.hypot(dx, dy)
+                if d < 3500:
+                    continue
+                adiff = abs((math.atan2(dy, dx) - target_angle + math.pi) % (2 * math.pi) - math.pi)
+                score = d * 0.001 - adiff  # favour far + in-sector
+                if score > best_score:
+                    best_score = score
+                    best = p
+
+            if best is None:  # fallback: farthest unassigned
+                cands = [p for p in self.planets[1:] if p not in assigned]
+                best = max(cands, key=lambda p: math.hypot(p.x - home.x, p.y - home.y)) if cands else None
+
+            if best:
+                assigned.append(best)
+                best.faction = faction
+                best.discovered = False
+                best.explored = False
+                best.habitable = False
+                best.resources["oil"] = 5000
+                best.resources["deuterium"] = 1000
+                homes[faction] = best
+
+        return homes
+
     def _spawn_initial_enemies(self):
         rng = random.Random(42)
-        home = self.planets[0]
-
         _ENEMY_SHIPS = [
             {"faction": "krell",   "type": "Fighter"},
             {"faction": "krell",   "type": "Destroyer"},
@@ -89,37 +131,16 @@ class Game:
             {"faction": "nexus",   "type": "Fighter"},
             {"faction": "neutral", "type": "Fighter"},
         ]
-
-        n = len(_ENEMY_SHIPS)
-        sectors = list(range(n))
-        rng.shuffle(sectors)
-        sector_size = 2 * math.pi / n
-
-        class _FakePlanet:
-            def __init__(self_, x, y, name, pid):
-                self_.x = x; self_.y = y; self_.name = name
-                self_.ships = []; self_.resources = {}; self_.id = pid
-
-        for i, entry in enumerate(_ENEMY_SHIPS):
+        for entry in _ENEMY_SHIPS:
             faction = entry["faction"]
-            relationship = FACTION_DEFS[faction]["relationship"]
-
-            # Distance zone: neutrals closer to home, enemies farther
-            if relationship == "neutral":
-                r = rng.uniform(3000, 5000)
-            else:
-                r = rng.uniform(8000, 11000)
-
-            # Evenly spread angular sectors, shuffled for randomness
-            base_angle = sectors[i] * sector_size
-            angle = base_angle + rng.uniform(-math.pi / 9, math.pi / 9)  # ±20° jitter
-
-            wx = max(500, min(WORLD_W - 500, home.x + r * math.cos(angle)))
-            wy = max(500, min(WORLD_H - 500, home.y + r * math.sin(angle)))
-
-            fname = FACTION_DEFS[faction]["name"]
-            fp = _FakePlanet(wx, wy, fname, -(i + 1))
-            s = Ship(entry["type"], fp, faction=faction)
+            home_planet = self._faction_homes.get(faction)
+            if home_planet is None:
+                continue
+            angle = rng.uniform(0, 2 * math.pi)
+            dist  = rng.uniform(150, 400)
+            wx = max(500, min(WORLD_W - 500, home_planet.x + dist * math.cos(angle)))
+            wy = max(500, min(WORLD_H - 500, home_planet.y + dist * math.sin(angle)))
+            s = Ship(entry["type"], home_planet, faction=faction)
             s.x = float(wx)
             s.y = float(wy)
             s.fuel_remaining = s.fuel_capacity
@@ -580,6 +601,7 @@ class Game:
         keys = pygame.key.get_pressed()
         self.camera.update(keys)
         self._time_scale = 10.0 if keys[pygame.K_KP_PLUS] else 1.0
+        self._debug_fog_off = bool(keys[pygame.K_r])
 
     # ── fog of war ───────────────────────────────────────────────
     def _compute_visible_enemies(self):
@@ -726,7 +748,7 @@ class Game:
         self._draw_highways()
         self._draw_detection_radii()
         for p in self.planets:
-            p.draw(self.screen, self.camera)
+            p.draw(self.screen, self.camera, force=self._debug_fog_off)
         self._draw_planet_threat_circles()
         selected_planet = self.ui.planet if self.ui.visible else None
         if selected_planet and selected_planet is not self._hovered_planet:
@@ -736,9 +758,12 @@ class Game:
         for s in self.ships:
             if not s.is_docked:
                 s.draw(self.screen, self.camera)
-        for s in self._visible_enemies:
+        _draw_enemies = (s for s in self.enemy_ships if not s._destroyed) \
+                        if self._debug_fog_off else self._visible_enemies
+        for s in _draw_enemies:
             s.draw(self.screen, self.camera)
-        for d in self._visible_debris:
+        _draw_debris = self.debris_list if self._debug_fog_off else self._visible_debris
+        for d in _draw_debris:
             d.draw(self.screen, self.camera, hovered=(d is self._hovered_debris))
         for fleet in self.fleets.values():
             fleet.draw(self.screen, self.camera)
